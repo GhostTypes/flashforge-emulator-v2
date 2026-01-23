@@ -342,6 +342,20 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
 export type SimulationMode = 'auto' | 'manual';
 
 /**
+ * Network interface information for discovery configuration
+ */
+export interface NetworkInterface {
+  /** Interface IP address */
+  address: string;
+  /** Display name (e.g., "Wi-Fi (192.168.1.131)") */
+  displayName: string;
+  /** Interface type */
+  type: 'physical' | 'virtual' | 'loopback';
+  /** Internal technical name */
+  name: string;
+}
+
+/**
  * Emulator configuration
  */
 export interface EmulatorConfig {
@@ -361,6 +375,8 @@ export interface EmulatorConfig {
   simulationSpeed: number;
   /** Whether to start servers on app launch */
   autoStart: boolean;
+  /** Network interface for UDP discovery (empty = all interfaces) */
+  discoveryInterface: string;
 }
 
 /**
@@ -375,4 +391,5 @@ export const DEFAULT_CONFIG: EmulatorConfig = {
   simulationMode: 'auto',
   simulationSpeed: 100,
   autoStart: false,
+  discoveryInterface: '',
 } as const;

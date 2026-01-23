@@ -12,6 +12,7 @@ import path from 'node:path';
 import { BrowserWindow, app } from 'electron';
 import { registerStateHandlers, setupStateForwarding } from './ipc/StateHandlers';
 import { simulationService } from './services/SimulationService';
+import { getUdpDiscoveryServer } from './services/UdpDiscoveryServer';
 import { printerStateStore } from './state/PrinterStateStore';
 
 /**
@@ -31,7 +32,7 @@ function createWindow(): void {
     backgroundColor: '#0a0a0a',
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, '../preload/index.js'),
+      preload: path.join(__dirname, '../preload/index.cjs'),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -44,11 +45,12 @@ function createWindow(): void {
   });
 
   // Load the appropriate URL based on environment
-  if (process.env['VITE_DEV_SERVER_URL']) {
-    void mainWindow.loadURL(process.env['VITE_DEV_SERVER_URL']);
+  const devUrl = process.env['VITE_DEV_SERVER_URL'] || process.env['ELECTRON_RENDERER_URL'];
+  if (devUrl) {
+    void mainWindow.loadURL(devUrl);
     mainWindow.webContents.openDevTools();
   } else {
-    void mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    void mainWindow.loadFile(path.join(__dirname, '../../dist/index.html'));
   }
 
   // Set up state change forwarding to renderer
@@ -64,6 +66,11 @@ app.on('ready', () => {
 
   // Initialize printer state with default model
   printerStateStore.initialize(printerStateStore.config.selectedModel);
+
+  // Start UDP discovery server (always on for printer discovery)
+  const udpDiscoveryServer = getUdpDiscoveryServer(printerStateStore.state.model);
+  udpDiscoveryServer.updateBindAddress(printerStateStore.config.discoveryInterface);
+  udpDiscoveryServer.start();
 
   // Start simulation service
   simulationService.start();

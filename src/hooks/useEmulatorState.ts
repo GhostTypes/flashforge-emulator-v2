@@ -8,7 +8,12 @@
  * @packageDocumentation
  */
 
-import type { EmulatorConfig, PrinterModel, PrinterState } from '@shared/types/printer';
+import type {
+  EmulatorConfig,
+  NetworkInterface,
+  PrinterModel,
+  PrinterState,
+} from '@shared/types/printer';
 import { PRINTER_PROFILES } from '@shared/types/printer';
 import { useEffect, useState } from 'react';
 
@@ -38,6 +43,8 @@ interface UseEmulatorStateReturn {
   startHttpServer: () => Promise<void>;
   /** Stop HTTP server */
   stopHttpServer: () => Promise<void>;
+  /** Get available network interfaces */
+  getNetworkInterfaces: () => Promise<NetworkInterface[]>;
 }
 
 /**
@@ -124,6 +131,10 @@ export function useEmulatorState(): UseEmulatorStateReturn {
     await window.api.stopHttpServer();
   };
 
+  const getNetworkInterfaces = async (): Promise<NetworkInterface[]> => {
+    return await window.api.getNetworkInterfaces();
+  };
+
   return {
     state,
     config,
@@ -136,6 +147,7 @@ export function useEmulatorState(): UseEmulatorStateReturn {
     stopTcpServer,
     startHttpServer,
     stopHttpServer,
+    getNetworkInterfaces,
   };
 }
 

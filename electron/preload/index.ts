@@ -12,6 +12,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   EmulatorConfig,
   MaterialSlotUpdate,
+  NetworkInterface,
   PrintJobStatus,
   PrinterFile,
   PrinterModel,
@@ -188,6 +189,55 @@ const emulatorApi = {
    * Stop HTTP server
    */
   stopHttpServer: (): Promise<void> => ipcRenderer.invoke('stop-http-server'),
+
+  /**
+   * Start UDP discovery server
+   */
+  startDiscoveryServer: (): Promise<void> => ipcRenderer.invoke('start-discovery-server'),
+
+  /**
+   * Stop UDP discovery server
+   */
+  stopDiscoveryServer: (): Promise<void> => ipcRenderer.invoke('stop-discovery-server'),
+
+  /**
+   * Listen for discovery requests
+   */
+  onDiscoveryRequest: (
+    callback: (data: { remoteAddress: string; remotePort: number }) => void
+  ): void => {
+    const listener = (_event: unknown, data: { remoteAddress: string; remotePort: number }) =>
+      callback(data);
+    ipcRenderer.on('discovery-request', listener);
+  },
+
+  /**
+   * Listen for discovery responses
+   */
+  onDiscoveryResponse: (
+    callback: (data: { remoteAddress: string; printerName: string; serialNumber: string }) => void
+  ): void => {
+    const listener = (
+      _event: unknown,
+      data: { remoteAddress: string; printerName: string; serialNumber: string }
+    ) => callback(data);
+    ipcRenderer.on('discovery-response', listener);
+  },
+
+  /**
+   * Remove discovery listeners
+   */
+  removeDiscoveryListeners: (): void => {
+    ipcRenderer.removeAllListeners('discovery-request');
+    ipcRenderer.removeAllListeners('discovery-response');
+    ipcRenderer.removeAllListeners('discovery-error');
+  },
+
+  /**
+   * Get available network interfaces
+   */
+  getNetworkInterfaces: (): Promise<NetworkInterface[]> =>
+    ipcRenderer.invoke('get-network-interfaces'),
 
   /**
    * Get simulation mode and speed
