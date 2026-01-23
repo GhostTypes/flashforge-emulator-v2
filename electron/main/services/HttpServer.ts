@@ -665,11 +665,23 @@ export class HttpServer extends EventEmitter {
     const printNow = req.headers['printnow'] === 'true';
     const levelingBeforePrint = req.headers['levelingbeforeprint'] === 'true';
 
-    // Parse AD5X headers (reserved for future use)
-    void req.headers['flowcalibration'];
-    void req.headers['usematlstation'];
-    void req.headers['gcodeltoolcnt'];
-    void req.headers['materialmappings'];
+    // Parse AD5X headers
+    const flowCalibration = req.headers['flowcalibration'] === 'true';
+    const useMatlStation = req.headers['usematlstation'] === 'true';
+    const gcodeToolCnt = Number.parseInt(req.headers['gcodeltoolcnt'] as string, 10) || 0;
+
+    // Base64 decode materialMappings if present
+    let materialMappings: unknown[] = [];
+    const materialMappingsHeader = req.headers['materialmappings'] as string;
+    if (materialMappingsHeader) {
+      try {
+        const decoded = Buffer.from(materialMappingsHeader, 'base64').toString('utf-8');
+        materialMappings = JSON.parse(decoded) as unknown[];
+      } catch {
+        // If decoding fails, leave as empty array
+        materialMappings = [];
+      }
+    }
 
     // Create printer file entry
     const printTime = estimatePrintTime(fileSize);
@@ -685,11 +697,20 @@ export class HttpServer extends EventEmitter {
     // Add file to state
     printerStateStore.addFile(printerFile);
 
+    // Store AD5X parameters for this upload
+    const ad5xParams = {
+      flowCalibration,
+      useMatlStation,
+      gcodeToolCnt,
+      materialMappings,
+    };
+
     this.emit('upload-complete', {
       fileName,
       fileSize,
       printNow,
       levelingBeforePrint,
+      ad5xParams,
     });
 
     // Start printing if requested
@@ -704,7 +725,7 @@ export class HttpServer extends EventEmitter {
       }
 
       printerStateStore.startPrint(fileName, printTime);
-      this.emit('print-started', { fileName });
+      this.emit('print-started', { fileName, ad5xParams });
     }
 
     res.json(this.#success());
