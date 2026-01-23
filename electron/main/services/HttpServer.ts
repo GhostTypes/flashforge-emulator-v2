@@ -599,9 +599,11 @@ export class HttpServer extends EventEmitter {
       return;
     }
 
-    // Return empty image data for now
+    // Return placeholder 1x1 transparent PNG
+    const placeholderPng =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
     this.emit('response-sent', { path: '/gcodeThumb', fileName });
-    res.json(this.#success('', 'imageData'));
+    res.json(this.#success(placeholderPng, 'imageData'));
   });
 
   /**

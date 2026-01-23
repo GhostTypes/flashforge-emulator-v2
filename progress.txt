@@ -30,6 +30,10 @@
   - Modified #handleGcodeList to return both gcodeList and gcodeListDetail
   - Returns empty array for now (structure is key)
   - File: electron/main/services/HttpServer.ts (lines ~27-68, 568-582)
+- [x] PH2-02: Fix /gcodeThumb to return PNG data
+  - Added placeholderPng constant with 1x1 transparent PNG base64
+  - Modified #handleGcodeThumb to return placeholder instead of empty string
+  - File: electron/main/services/HttpServer.ts (lines ~602-606)
 
 ### Phase 3: State Management - Part 1 (Cumulative Stats)
 [None started yet]
