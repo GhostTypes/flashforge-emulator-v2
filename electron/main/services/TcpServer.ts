@@ -312,12 +312,15 @@ export class TcpServer extends EventEmitter {
    * Handles a command and returns the response
    */
   #handleCommand(client: TcpClient, command: string): string | null {
+    // Strip tilde prefix if present (many commands use ~ prefix)
+    const normalizedCommand = command.startsWith('~') ? command.slice(1) : command;
+
     // Handshake commands
-    if (command === 'M601') {
+    if (normalizedCommand === 'M601' || normalizedCommand === 'M601 S1') {
       return this.#handleM601(client);
     }
 
-    if (command === 'M602') {
+    if (normalizedCommand === 'M602') {
       return this.#handleM602(client);
     }
 
@@ -327,64 +330,64 @@ export class TcpServer extends EventEmitter {
     }
 
     // Information commands
-    if (command === 'M115' || command === '~M115') {
+    if (normalizedCommand === 'M115') {
       return this.#handleM115();
     }
 
-    if (command === 'M105' || command === '~M105') {
+    if (normalizedCommand === 'M105') {
       return this.#handleM105();
     }
 
-    if (command === 'M119' || command === '~M119') {
+    if (normalizedCommand === 'M119') {
       return this.#handleM119();
     }
 
-    if (command === 'M114' || command === '~M114') {
+    if (normalizedCommand === 'M114') {
       return this.#handleM114();
     }
 
-    if (command === 'M27' || command === '~M27') {
+    if (normalizedCommand === 'M27') {
       return this.#handleM27();
     }
 
-    if (command === 'M661' || command === '~M661') {
+    if (normalizedCommand === 'M661') {
       return this.#handleM661();
     }
 
-    if (command.startsWith('M662 ') || command.startsWith('~M662 ')) {
+    if (normalizedCommand.startsWith('M662 ')) {
       return this.#handleM662(command);
     }
 
     // Control commands
-    if (command === 'G28' || command === '~G28') {
+    if (normalizedCommand === 'G28') {
       return this.#handleG28();
     }
 
-    if (command.startsWith('M23 ')) {
+    if (normalizedCommand.startsWith('M23 ')) {
       return this.#handleM23(command);
     }
 
-    if (command === 'M24' || command === '~M24') {
+    if (normalizedCommand === 'M24') {
       return this.#handleM24();
     }
 
-    if (command === 'M25' || command === '~M25') {
+    if (normalizedCommand === 'M25') {
       return this.#handleM25();
     }
 
-    if (command === 'M26' || command === '~M26') {
+    if (normalizedCommand === 'M26') {
       return this.#handleM26();
     }
 
-    if (command.startsWith('M104 ')) {
+    if (normalizedCommand.startsWith('M104 ')) {
       return this.#handleM104(command);
     }
 
-    if (command.startsWith('M140 ')) {
+    if (normalizedCommand.startsWith('M140 ')) {
       return this.#handleM140(command);
     }
 
-    if (command.startsWith('M146 ')) {
+    if (normalizedCommand.startsWith('M146 ')) {
       return this.#handleM146(command);
     }
 
