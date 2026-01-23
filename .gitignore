@@ -1,0 +1,26 @@
+# Electron Vite output
+/dist-electron/
+
+# Release builds
+/release/
+
+# Dependencies
+/node_modules/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local

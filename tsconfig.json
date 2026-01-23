@@ -1,0 +1,70 @@
+/**
+ * @fileoverview
+ * TypeScript configuration for FlashForge Emulator V2
+ *
+ * Strict mode enabled for maximum type safety.
+ * Separate configurations for main process, preload, and renderer.
+ *
+ * @packageDocumentation
+ */
+
+{
+  "compilerOptions": {
+    // Target ES2022 for private class fields support
+    "target": "ES2022",
+
+    // Enable all strict type checking options
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "exactOptionalPropertyTypes": true,
+
+    // Module resolution
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": false,
+
+    // Emit options
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": false,
+    "noEmit": false,
+
+    // JSX and React
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+
+    // Path mapping
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"],
+      "@main/*": ["electron/main/*"],
+      "@preload/*": ["electron/preload/*"],
+      "@renderer/*": ["src/*"],
+      "@shared/*": ["shared/*"]
+    },
+
+    // Other options
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["electron/**/*.ts", "src/**/*.ts", "src/**/*.tsx", "shared/**/*.ts"],
+  "exclude": ["node_modules", "dist", "dist-electron", "release", "ai_reference", ".claude"]
+}
