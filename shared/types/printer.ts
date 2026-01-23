@@ -152,6 +152,8 @@ export interface LedState {
 export interface FanState {
   /** Main cooling fan speed (0-100) */
   coolingFanSpeed: number;
+  /** Left cooling fan speed (0-100) - AD5X only */
+  coolingLeftFanSpeed: number;
   /** Chamber fan speed (0-100) */
   chamberFanSpeed: number;
   /** Whether external fan is on */

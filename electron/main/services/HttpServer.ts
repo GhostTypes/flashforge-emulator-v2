@@ -382,6 +382,7 @@ export class HttpServer extends EventEmitter {
       chamberTargetTemp: state.temperature.chamberTarget,
       chamberTemp: state.temperature.chamberCurrent,
       coolingFanSpeed: state.fan.coolingFanSpeed,
+      coolingLeftFanSpeed: profile.hasMaterialStation ? state.fan.coolingLeftFanSpeed : 0,
       cumulativeFilament: 0,
       cumulativePrintTime: 0,
       currentPrintSpeed: 100,
