@@ -7,9 +7,10 @@
  * @packageDocumentation
  */
 
-import type { EmulatorConfig, PrinterModel } from '@shared/types/printer';
+import type { EmulatorConfig, NetworkInterface, PrinterModel } from '@shared/types/printer';
 import { Check, Loader2, Power, PowerOff, RefreshCw } from 'lucide-react';
 import type { FunctionComponent } from 'react';
+import { useEffect, useState } from 'react';
 import { getPrinterModels, getPrinterProfile } from '../hooks/useEmulatorState';
 
 interface SettingsProps {
@@ -33,6 +34,8 @@ interface SettingsProps {
   onStopHttp: () => Promise<void>;
   /** Whether servers are running */
   serversRunning: { tcp: boolean; http: boolean };
+  /** Callback to get network interfaces */
+  onGetNetworkInterfaces: () => Promise<NetworkInterface[]>;
 }
 
 export const Settings: FunctionComponent<SettingsProps> = ({
@@ -46,8 +49,15 @@ export const Settings: FunctionComponent<SettingsProps> = ({
   onStartHttp,
   onStopHttp,
   serversRunning,
+  onGetNetworkInterfaces,
 }) => {
   const printerModels = getPrinterModels();
+  const [networkInterfaces, setNetworkInterfaces] = useState<NetworkInterface[]>([]);
+
+  // Load network interfaces on mount
+  useEffect(() => {
+    void onGetNetworkInterfaces().then(setNetworkInterfaces);
+  }, [onGetNetworkInterfaces]);
 
   const handleModelChange = (model: PrinterModel) => {
     const newConfig = { ...config, selectedModel: model };
@@ -195,6 +205,34 @@ export const Settings: FunctionComponent<SettingsProps> = ({
               onChange={(e) => onConfigChange({ ...config, checkCode: e.target.value })}
               className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
             />
+          </div>
+
+          {/* Discovery Interface */}
+          <div>
+            <label htmlFor="discoveryInterface" className="mb-1.5 block text-sm text-neutral-400">
+              Discovery Interface
+            </label>
+            <select
+              id="discoveryInterface"
+              value={config.discoveryInterface || ''}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryInterface: e.target.value,
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            >
+              <option value="">All Interfaces (default)</option>
+              {networkInterfaces.map((iface) => (
+                <option key={iface.address} value={iface.address}>
+                  {iface.displayName}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-neutral-600">
+              Select network interface for UDP printer discovery. Empty = all interfaces.
+            </p>
           </div>
         </div>
 

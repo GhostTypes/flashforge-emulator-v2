@@ -12,12 +12,15 @@ import { ipcMain } from 'electron';
 import type {
   EmulatorConfig,
   MaterialSlotUpdate,
+  NetworkInterface,
   PrinterModel,
   PrinterState,
 } from '../../../shared/types/printer';
 import { destroyHttpServer, getHttpServer } from '../services/HttpServer';
 import { destroyTcpServer, getTcpServer } from '../services/TcpServer';
+import { destroyUdpDiscoveryServer, getUdpDiscoveryServer } from '../services/UdpDiscoveryServer';
 import { printerStateStore } from '../state/PrinterStateStore';
+import { getAvailableNetworkInterfaces } from '../utils/NetworkInterfaces';
 
 /**
  * Registers all state-related IPC handlers
@@ -41,7 +44,23 @@ export function registerStateHandlers(): void {
    * Set emulator configuration
    */
   ipcMain.handle('set-config', (_event, config: EmulatorConfig): void => {
+    const oldInterface = printerStateStore.config.discoveryInterface;
+    const newInterface = config.discoveryInterface;
+
     printerStateStore.updateConfig(config);
+
+    // Restart UDP discovery server if interface changed
+    if (oldInterface !== newInterface) {
+      const udpDiscoveryServer = getUdpDiscoveryServer(printerStateStore.state.model);
+      udpDiscoveryServer.updateBindAddress(newInterface);
+    }
+  });
+
+  /**
+   * Get available network interfaces
+   */
+  ipcMain.handle('get-network-interfaces', (): NetworkInterface[] => {
+    return getAvailableNetworkInterfaces();
   });
 
   /**
@@ -240,6 +259,21 @@ export function registerStateHandlers(): void {
   });
 
   /**
+   * Start UDP discovery server
+   */
+  ipcMain.handle('start-discovery-server', (): void => {
+    const udpDiscoveryServer = getUdpDiscoveryServer(printerStateStore.state.model);
+    udpDiscoveryServer.start();
+  });
+
+  /**
+   * Stop UDP discovery server
+   */
+  ipcMain.handle('stop-discovery-server', (): void => {
+    destroyUdpDiscoveryServer();
+  });
+
+  /**
    * Get simulation mode
    */
   ipcMain.handle('get-simulation-mode', (): { mode: 'auto' | 'manual'; speed: number } => {
@@ -288,6 +322,32 @@ export function setupStateForwarding(mainWindow: Electron.BrowserWindow): void {
   printerStateStore.on('job-changed', (job: typeof printerStateStore.state.printJob) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('job-update', job);
+    }
+  });
+
+  // Forward UDP discovery server events to renderer
+  const udpDiscoveryServer = getUdpDiscoveryServer(printerStateStore.state.model);
+  udpDiscoveryServer.on(
+    'discovery-request',
+    (data: { remoteAddress: string; remotePort: number }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('discovery-request', data);
+      }
+    }
+  );
+
+  udpDiscoveryServer.on(
+    'discovery-response',
+    (data: { remoteAddress: string; printerName: string; serialNumber: string }) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('discovery-response', data);
+      }
+    }
+  );
+
+  udpDiscoveryServer.on('send-error', (data: { remoteAddress: string; error: Error }) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('discovery-error', data);
     }
   });
 }

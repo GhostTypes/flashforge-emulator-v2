@@ -35,6 +35,7 @@ export const App: FunctionComponent = () => {
     stopTcpServer,
     startHttpServer,
     stopHttpServer,
+    getNetworkInterfaces,
   } = useEmulatorState();
 
   // Add a log entry
@@ -178,6 +179,7 @@ export const App: FunctionComponent = () => {
             onStartHttp={handleStartHttp}
             onStopHttp={handleStopHttp}
             serversRunning={serversRunning}
+            onGetNetworkInterfaces={getNetworkInterfaces}
           />
         );
       default:
