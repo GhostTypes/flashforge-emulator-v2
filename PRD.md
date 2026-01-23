@@ -1,470 +1,461 @@
-# FlashForge 3D Printer Emulator - Product Requirements Document
+# FlashForge Emulator - Gap Closure PRD
 
-## Project Overview
+## Project Context
 
-**Project Name:** FlashForge Emulator V2
+**Project**: FlashForge Emulator V2 - A complete Electron-based emulator for FlashForge 3D printers (Adventurer 3/4/5M/5M Pro/AD5X)
 
-**Description:** A fully-featured emulator for FlashForge 3D printers that simulates both TCP (legacy) and HTTP (modern) protocol layers. This emulator will allow developers to test client applications without connecting to physical printers.
+**Purpose**: Close all identified gaps between the emulator and real printer behavior to achieve full FlashForgeUI compatibility.
 
-**Tech Stack:**
-- Electron (desktop application)
-- Vite (build tool)
-- React 19 (UI framework)
-- Tailwind CSS v4 (styling)
-- TypeScript (strict mode)
-- Biome (linter + formatter)
+**Tech Stack**:
+- Electron + React 19 + TypeScript
+- Biome for linting/formatting
+- TCP (8899), HTTP (8898), UDP Discovery (48899) protocols
 
-**Session Start Time:** Thursday, January 22, 2026 at 09:31:01 PM EST
+**Current State**:
+- TypeScript strict mode: 0 errors
+- Biome lint: 0 errors across 29 files
+- All basic endpoints implemented, but many gaps identified via comprehensive analysis
 
----
-
-## Source of Truth
-
-All implementation MUST be based on the documentation in `ai_reference/`:
-
-1. **FlashForge API Docs** (`ai_reference/flashforge-api-docs/`)
-   - `README.md` - API overview
-   - `http-api.md` - Modern HTTP API (port 8898)
-   - `legacy-api.md` - Legacy TCP API (port 8899)
-   - `ad5x-api.md` - AD5X (material station) specifics
-   - `ad5x-workflow.md` - Multi-material printing workflow
-
-2. **Existing API Implementation** (`ai_reference/ff-5mp-api-ts/`)
-   - Reference for TypeScript patterns, data models, and protocol handling
-
-3. **Existing UI Application** (`ai_reference/FlashForgeUI-Electron/`)
-   - Reference for Electron + React patterns, IPC structure, UI components
+**What We're Doing**: Systematically implementing missing features across 7 phases.
 
 ---
 
-## Architecture Overview
+## Tasks
 
-### Protocol Modes
+Complete tasks in STRICT PHASE ORDER. Do NOT start Phase N until ALL tasks in Phase N-1 are complete.
 
-The emulator supports two modes:
+Each task is scoped to complete within a single iteration (5-15 minutes of work).
 
-1. **Legacy Mode (TCP Only)**
-   - Port: 8899
-   - Protocol: Text-based G/M-code commands
-   - Target: Adventurer 3/4 series, basic 5M functionality
+### Phase 1: Critical TCP Fixes (Blocks Connection)
 
-2. **Modern Mode (TCP + HTTP)**
-   - TCP Port: 8899 (legacy compatibility)
-   - HTTP Port: 8898 (JSON REST API)
-   - Target: Adventurer 5M/Pro/AD5X series
+- [ ] **PH1-01**: Fix M601 command to accept `~M601 S1` format
+  - File: `electron/main/services/TcpServer.ts` (line ~316)
+  - Add condition to check for `~M601 S1` in addition to `M601`
+  - Reference: ff-5mp-api-ts shows client sends `~M601 S1`
 
-### Core Components
+- [ ] **PH1-02**: Implement M112 emergency stop
+  - File: `electron/main/services/TcpServer.ts`
+  - Add handler for M112 command
+  - Set job status to idle, emit state change
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    FlashForge Emulator                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  ┌──────────────────┐    ┌──────────────────┐                   │
-│  │   TCP Server     │    │   HTTP Server    │                   │
-│  │   (Port 8899)    │    │   (Port 8898)    │                   │
-│  │                  │    │                  │                   │
-│  │  - M601 Handshake│    │  - /detail       │                   │
-│  │  - G/M Codes     │    │  - /control      │                   │
-│  │  - State Machine │    │  - /gcodeList    │                   │
-│  │  - File Storage  │    │  - /uploadGcode  │                   │
-│  └────────┬─────────┘    └────────┬─────────┘                   │
-│           │                      │                              │
-│           └──────────┬───────────┘                              │
-│                      ▼                                          │
-│           ┌──────────────────────┐                              │
-│           │   Printer State      │                              │
-│           │   (Single Source)    │                              │
-│           ├──────────────────────┤                              │
-│           │ • Temperatures       │                              │
-│           │ • Position           │                              │
-│           │ • Print Status       │                              │
-│           │ • File List          │                              │
-│           │ • Material Station   │                              │
-│           │ • Settings           │                              │
-│           └──────────────────────┘                              │
-│                                                                 │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                    Electron UI                           │  │
-│  │  • Mode Selection (Legacy/Modern)                        │  │
-│  │  • Port Configuration                                    │  │
-│  │  • Printer State Visualization                          │  │
-│  │  • Log Viewer                                            │  │
-│  │  • File Management                                       │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+- [ ] **PH1-03**: Add tilde prefix support to remaining TCP commands
+  - File: `electron/main/services/TcpServer.ts`
+  - Commands missing `~` support: M23, M104, M140, M146, M662
+  - Refactor: Strip `~` prefix at start of command processing
 
----
+### Phase 2: Core HTTP API (AD5X Support)
 
-## Task Checklist
+- [ ] **PH2-01**: Extend /gcodeList response with gcodeListDetail
+  - File: `electron/main/services/HttpServer.ts` (lines 537-543)
+  - Add `gcodeListDetail: FFGcodeFileEntry[]` to response
+  - For now, return empty array - structure is key
 
-### Phase 1: Project Setup & Infrastructure
+- [ ] **PH2-02**: Fix /gcodeThumb to return PNG data
+  - File: `electron/main/services/HttpServer.ts` (lines 548-566)
+  - Return placeholder base64 PNG instead of empty string
+  - Use small 1x1 transparent PNG: `"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="`
 
-- [x] **1.1 Initialize Electron + Vite Project**
-  - Set up package.json with dependencies
-  - Configure electron-vite for main/renderer/preload
-  - Set up TypeScript configuration (strict mode)
-  - Configure Tailwind CSS v4
-  - Set up Biome for linting/formatting
+- [ ] **PH2-03**: Add AD5X parameters to /printGcode handler
+  - File: `electron/main/services/HttpServer.ts` (lines 571-598)
+  - Parse: flowCalibration, useMatlStation, gcodeToolCnt, materialMappings
+  - Store in job state for now (implementation later)
 
-- [x] **1.2 Configure Build & Development Scripts**
-  - Development mode with hot reload
-  - Production build scripts
-  - electron-builder configuration for packaging
+- [ ] **PH2-04**: Process AD5X headers in /uploadGcode
+  - File: `electron/main/services/HttpServer.ts` (lines 619-623)
+  - Remove `void` statements, actually parse and store the values
+  - Base64 decode materialMappings if present
 
-- [x] **1.3 Set Up Project Structure**
-  - Main process (Electron entry)
-  - Preload scripts (IPC bridge)
-  - Renderer (React UI)
-  - Shared types
-  - Protocol handlers
+- [ ] **PH2-05**: Add coolingLeftFanSpeed to /detail response
+  - File: `electron/main/services/HttpServer.ts`
+  - Add property after coolingFanSpeed
+  - Return 0 for non-AD5X, state value for AD5X
 
-### Phase 2: Core State Management
+### Phase 3: State Management - Part 1 (Cumulative Stats)
 
-- [x] **2.1 Implement Printer State Store**
-  - Single source of truth for all printer state
-  - Temperature state (nozzle, bed, chamber)
-  - Position state (X, Y, Z, E)
-  - Print job state (file, progress, status)
-  - File storage state
-  - Settings state
-  - Full simulation for all states (no G-code parsing required)
-  - Support for all printer models (Adventurer 3/4/5M/5M Pro/AD5X)
+- [ ] **PH3-01**: Add cumulative stats to PrinterState interface
+  - File: `shared/types/printer.ts`
+  - Add to PrinterState: `cumulativePrintTime: number`, `cumulativeFilament: number`
 
-- [x] **2.2 Implement Printer Profiles**
-  - Pre-configured profiles for each model
-  - Profile-specific capabilities and defaults
-  - Adventurer 3: TCP only, basic features
-  - Adventurer 4: TCP only, enhanced features
-  - Adventurer 5M: TCP + HTTP, modern features
-  - Adventurer 5M Pro: TCP + HTTP, camera, LEDs
-  - AD5X: TCP + HTTP, material station (IFS)
+- [ ] **PH3-02**: Initialize cumulative stats in StateStore
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - Initialize to 0 in constructor
+  - Load from config if available (persist for lifetime tracking)
 
-- [x] **2.3 Implement State Persistence**
-  - Save state to disk (electron-store)
-  - Load state on startup
-  - Reset state functionality
-  - Clean slate on startup
+- [ ] **PH3-03**: Increment cumulative stats on print complete
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - In simulatePrintProgress, when progress reaches 100
+  - Add elapsed time to cumulativePrintTime
+  - Add filament used to cumulativeFilament
+  - Emit `cumulative-stats-changed` event
 
-- [x] **2.4 Create State Machine for Print Jobs**
-  - States: idle, heating, printing, paused, completed, error
-  - Transitions and validation
-  - Event emission for state changes
-  - Auto-simulation mode: Automatically advance progress, temperatures
-  - Manual mode: User controls each state transition
+- [ ] **PH3-04**: Return cumulative stats in /detail
+  - File: `electron/main/services/HttpServer.ts`
+  - Return state.cumulativePrintTime and state.cumulativeFilament
+  - Currently hardcoded to 0
 
-### Phase 3: TCP Protocol Server
+### Phase 4: State Management - Part 2 (Filament Estimates)
 
-- [x] **3.1 TCP Server Setup**
-  - Create TCP server on port 8899
-  - Handle multiple connections
-  - Connection cleanup on disconnect
+- [ ] **PH4-01**: Add filament estimate properties to types
+  - File: `shared/types/printer.ts`
+  - Add to PrinterState: `estimatedRightLen`, `estimatedRightWeight`, `estimatedLeftLen`, `estimatedLeftWeight`
 
-- [x] **3.2 Implement Handshake (M601/M602)**
-  - M601 request control flow
-  - Control state tracking
-  - M602 release control
-  - "Control Success V2.1" response
+- [ ] **PH4-02**: Initialize filament estimates in StateStore
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - Initialize all to 0 in constructor
 
-- [x] **3.3 Implement Information Commands**
-  - M115 - Get printer information
-  - M105 - Get temperatures
-  - M119 - Get endstop and printer status
-  - M114 - Get current position
-  - M27 - Get print status
-  - M661 - Get local file list
-  - M662 - Get file thumbnail (PNG)
+- [ ] **PH4-03**: Calculate filament estimates during print
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - In simulatePrintProgress, update estimates based on progress
+  - Simple formula: (progress / 100) * estimated total
+  - Use crude estimate for now: 100g per job default
 
-- [x] **3.4 Implement Control Commands**
-  - G28 - Home axes
-  - M23 - Start print job
-  - M24 - Resume print
-  - M25 - Pause print
-  - M26 - Stop print
-  - M104 - Set extruder temperature
-  - M140 - Set bed temperature
-  - M146 - LED control
+- [ ] **PH4-04**: Return filament estimates in /detail
+  - File: `electron/main/services/HttpServer.ts`
+  - Return the four estimate values from state
 
-- [x] **3.5 Implement Keep-Alive**
-  - Send periodic commands to maintain connection
-  - Detect stale connections
+### Phase 5: State Management - Part 3 (AD5X Left Extruder)
 
-### Phase 4: HTTP Protocol Server
+- [ ] **PH5-01**: Add left extruder temps to TemperatureState
+  - File: `shared/types/printer.ts`
+  - Add to TemperatureState: `leftNozzleCurrent: number`, `leftNozzleTarget: number`
 
-- [x] **4.1 HTTP Server Setup**
-  - Create Express server on port 8898
-  - Configure JSON body parsing
-  - Configure multipart/form-data for file uploads
+- [ ] **PH5-02**: Initialize left extruder temps in StateStore
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - Initialize both to 0 in constructor
 
-- [x] **4.2 Implement Authentication**
-  - Validate serialNumber and checkCode
-  - Return auth errors (code 3)
+- [ ] **PH5-03**: Add left temp simulation for AD5X
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - When profile.isAD5X, simulate left temps similar to right
+  - Update in simulateTemperatures method
 
-- [x] **4.3 Implement /detail Endpoint**
-  - Return full printer state as JSON
-  - Match exact response format from API docs
+- [ ] **PH5-04**: Return left temps in /detail
+  - File: `electron/main/services/HttpServer.ts`
+  - Add leftTemp and leftTargetTemp to response
+  - Return state values
 
-- [x] **4.4 Implement /product Endpoint**
-  - Return feature availability flags
-  - LED, fan, temperature control states
+### Phase 6: State Management - Part 4 (Fan and Material Detection)
 
-- [x] **4.5 Implement /control Endpoint**
-  - lightControl_cmd
-  - printerCtl_cmd
-  - jobCtl_cmd
-  - circulateCtl_cmd
-  - streamCtrl_cmd
-  - stateCtrl_cmd
+- [ ] **PH6-01**: Add left cooling fan to FanState
+  - File: `shared/types/printer.ts`
+  - Add to FanState: `coolingLeftFanSpeed: number`
 
-- [x] **4.6 Implement File Operations**
-  - /gcodeList - Get recent files
-  - /gcodeThumb - Get file thumbnail
-  - /uploadGcode - Upload file (multipart)
-  - /printGcode - Start print job
+- [ ] **PH6-02**: Initialize left fan in StateStore
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - Initialize to 0 in constructor
 
-### Phase 5: AD5X Material Station Support
+- [ ] **PH6-03**: Add material detection properties
+  - File: `shared/types/printer.ts`
+  - Add to PrinterState: `hasLeftFilament`, `hasRightFilament`, `leftFilamentType`, `rightFilamentType`
 
-- [x] **5.1 Implement Material Station State**
-  - Slot tracking (1-4)
-  - Filament detection
-  - Material type and color per slot
+- [ ] **PH6-04**: Initialize material detection in StateStore
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - Initialize: hasLeftFilament=false, hasRightFilament=true (default right loaded)
+  - Set rightFilamentType='PLA', leftFilamentType=''
 
-- [x] **5.2 Extend /detail for AD5X**
-  - hasMatlStation flag
-  - matlStationInfo structure
-  - slotInfos array
+- [ ] **PH6-05**: Return material detection in /detail
+  - File: `electron/main/services/HttpServer.ts`
+  - Add hasLeftFilament, hasRightFilament, leftFilamentType, rightFilamentType
+  - Return state values
 
-- [x] **5.3 Implement Material Mapping**
-  - Validate materialMappings in upload/print
-  - Tool ID to slot ID mapping
+### Phase 7: State Management - Part 5 (Print Speed and Misc)
 
-### Phase 6: User Interface
+- [ ] **PH7-01**: Add print speed properties to types
+  - File: `shared/types/printer.ts`
+  - Add to PrinterState: `currentPrintSpeed: number`, `printSpeedAdjust: number`
 
-- [x] **6.1 Create Main Layout**
-  - Sidebar navigation
-  - Status dashboard
-  - Log viewer panel
+- [ ] **PH7-02**: Initialize print speed in StateStore
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - Initialize both to 100 (100% speed)
 
-- [x] **6.2 Implement Status Dashboard**
-  - Connection status indicator
-  - Temperature displays
-  - Position display
-  - Current job info
+- [ ] **PH7-03**: Add remaining /detail properties to types
+  - File: `shared/types/printer.ts`
+  - Add: fillAmount, errorCode, tvoc, zAxisCompensation, remainingDiskSpace
 
-- [x] **6.3 Implement Settings Panel**
-  - Printer profile selector (dropdown with all models)
-  - Pre-configured profiles: Adventurer 3, Adventurer 4, Adventurer 5M, Adventurer 5M Pro, AD5X
-  - Mode selection (Legacy/Modern) - auto-selected based on profile
-  - Port configuration
-  - Authentication settings (serial/check code)
-  - Material station configuration (AD5X only)
-  - Clean slate on startup with profile selection
+- [ ] **PH7-04**: Initialize remaining properties in StateStore
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - Initialize: fillAmount=0, errorCode='', tvoc=0, zAxisCompensation=0, remainingDiskSpace=1024*1024*1024
 
-- [x] **6.4 Implement Print Simulation Controls**
-  - Toggle between auto-simulation and manual control
-  - Auto-simulation: Automatically advance print progress, temperatures, etc.
-  - Manual control: User controls state transitions
+- [ ] **PH7-05**: Return all new properties in /detail
+  - File: `electron/main/services/HttpServer.ts`
+  - Add all missing properties to response
+  - Return state values instead of hardcoded
 
-- [x] **6.5 Implement File Manager**
-  - Upload files
-  - View file list
-  - Delete files
-  - Set active job
+### Phase 8: TCP Wait Commands (M109/M190/M191)
 
-- [x] **6.6 Implement Log Viewer**
-  - Real-time TCP command log
-  - HTTP request/response log
-  - Filterable by type
+- [ ] **PH8-01**: Implement M109 (set nozzle temp and wait)
+  - File: `electron/main/services/TcpServer.ts`
+  - Parse temperature from command
+  - Set target, then loop/block until within threshold
+  - Return ok when ready
 
-### Phase 7: Testing & Quality Assurance
+- [ ] **PH8-02**: Implement M190 (set bed temp and wait)
+  - File: `electron/main/services/TcpServer.ts`
+  - Similar to M109 but for bed
 
-- [x] **7.1 Type Safety**
-  - Ensure all TypeScript files use strict mode
-  - No `any` types
-  - Explicit return types on public APIs
+- [ ] **PH8-03**: Implement M191 (wait for bed cooling)
+  - File: `electron/main/services/TcpServer.ts`
+  - Wait until bed temp drops below specified value
 
-- [x] **7.2 Code Quality**
-  - Pass Biome lint (zero errors)
-  - Pass Biome format check
-  - No console.log in production code
+### Phase 9: TCP Movement Commands (G90/G1)
 
-- [x] **7.3 Build Verification**
-  - Successful development build
-  - Successful production build
-  - electron-builder packaging works
+- [ ] **PH9-01**: Implement G90 (absolute positioning)
+  - File: `electron/main/services/TcpServer.ts`
+  - Set a flag in state for positioning mode
+  - For now, just return ok (actual positioning in G1)
 
-### Phase 8: Documentation
+- [ ] **PH9-02**: Implement G1 (move to XYZ)
+  - File: `electron/main/services/TcpServer.ts`
+  - Parse X, Y, Z values from command
+  - Update position state
 
-- [x] **8.1 Create README.md**
-  - Installation instructions
-  - Development guide
-  - Usage guide
+- [ ] **PH9-03**: Implement G1 (extrude E)
+  - File: `electron/main/services/TcpServer.ts`
+  - Parse E value, update position.e
 
-- [x] **8.2 Document API Endpoints**
-  - TCP commands reference
-  - HTTP endpoints reference
+### Phase 10: TCP Response Format Fixes
 
-- [x] **8.3 Create TIMELOG.md**
-  - Track time spent on each phase
-  - Session summaries
+- [ ] **PH10-01**: Fix M662 to send binary PNG
+  - File: `electron/main/services/TcpServer.ts` (lines 530-547)
+  - After ok, write PNG bytes to socket
+  - Use setTimeout for delay
 
----
+- [ ] **PH10-02**: Fix M661 timing (delay file list)
+  - File: `electron/main/services/TcpServer.ts`
+  - Send ok immediately, file list after 500ms delay
 
-## Available Skills (Reference During Development)
+- [ ] **PH10-03**: Fix M114 format (use A/B instead of E)
+  - File: `electron/main/services/TcpServer.ts`
+  - Change response to use A: and B: for extruders
 
-### Core Skills (Always Use)
-- **best-practices** - SOLID, DRY, KISS, YAGNI, SoC, SSOT
-- **typescript-best-practices** - Strict types, discriminated unions, type guards
+- [ ] **PH10-04**: Fix M105 format (add T1)
+  - File: `electron/main/services/TcpServer.ts`
+  - Add T1:0.0/0.0 to response
 
-### Technology Skills (Invoke When Needed)
-- **electron** - Electron APIs, IPC, security, sandbox
-- **electron-vite** - Build configuration, HMR, hot reload
-- **electron-store** - Data persistence
-- **electron-builder** - Packaging and distribution
-- **react-19** - React components, hooks, forms
-- **tailwind-css** - Utility classes, styling
-- **lucide-react** - Icons (always use for icons)
+### Phase 11: TCP Sensor Commands (M405/M406/M240)
 
-### Design Skills
-- **modern-frontend-design** - UI design, NO emojis, unique aesthetics
+- [ ] **PH11-01**: Implement M405 (enable runout sensor)
+  - File: `electron/main/services/TcpServer.ts`
+  - Set state flag for sensor enabled
+  - For 5M Pro only
 
-### Utility Skills
-- **biome** - Linting and formatting
-- **get-time** - Timestamp tracking for TIMELOG.md
+- [ ] **PH11-02**: Implement M406 (disable runout sensor)
+  - File: `electron/main/services/TcpServer.ts`
+  - Clear state flag
 
----
+- [ ] **PH11-03**: Implement M240 (take picture)
+  - File: `electron/main/services/TcpServer.ts`
+  - Return ok (no actual camera in emulator)
 
-## Constraints (Hard Boundaries)
+### Phase 12: Print Simulation Enhancements
 
-### Files NOT to Modify
-- `ai_reference/` - Read-only reference material
-- `.claude/` - Claude configuration (except PRD.md, progress.txt, TIMELOG.md)
+- [ ] **PH12-01**: Implement Z-axis updates during print
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - In simulatePrintProgress, update position.z
+  - Formula: (currentLayer / totalLayers) * 220 (max height)
 
-### Actions Forbidden
-- Do NOT deploy to production stores
-- Do NOT connect to real physical printers during development
-- Do NOT use emojis anywhere in the UI
-- Do NOT use default purple/indigo gradients
-- Do NOT create generic three-column layouts
-- Do NOT skip TypeScript strict mode
-- Do NOT use `any` types
+- [ ] **PH12-02**: Implement E-axis updates during print
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - In simulatePrintProgress, update position.e
+  - Increment based on progress
 
-### Code Style Requirements
-- All `.ts` and `.tsx` files must have `@fileoverview` block
-- Use `import type` for type-only imports
-- Prefer named exports over default exports
-- Use `readonly` for immutable interfaces
-- Use discriminated unions for state
-- Use Result types for error handling
+- [ ] **PH12-03**: Auto fan ramp-up during print
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - When status is 'printing', set coolingFanSpeed to 100
+  - Return to 0 when idle
+
+- [ ] **PH12-04**: Implement pausing state transition
+  - File: `electron/main/state/PrinterStateStore.ts`
+  - In pausePrint, set status to 'pausing' first
+  - Use setTimeout to transition to 'paused' after 500ms
+
+### Phase 13: File Operations
+
+- [ ] **PH13-01**: Fix FileManager file extension
+  - File: `src/components/FileManager.tsx` (line 42)
+  - Remove the .replace() that strips extension
+  - Preserve full filename with .gcode
+
+- [ ] **PH13-02**: Add /deleteGcode endpoint
+  - File: `electron/main/services/HttpServer.ts`
+  - New POST endpoint
+  - Accept { fileName } body
+  - Remove from state.files
+
+- [ ] **PH13-03**: Extend PrinterFile type
+  - File: `shared/types/printer.ts`
+  - Add: gcodeToolCnt, gcodeToolDatas, useMatlStation, totalFilamentWeight, thumbnail
+
+- [ ] **PH13-04**: Extract thumbnails from uploaded G-code
+  - File: `electron/main/services/HttpServer.ts` (upload handler)
+  - Parse for `; thumbnail begin` comments
+  - Decode base64 and store with file
+
+### Phase 14: Control Commands
+
+- [ ] **PH14-01**: Add temperatureCtl_cmd to /control
+  - File: `electron/main/services/HttpServer.ts`
+  - Handle temperature control commands
+  - Update state temperatures
+
+- [ ] **PH14-02**: Add zAxisCompensation to printerCtl_cmd
+  - File: `electron/main/services/HttpServer.ts`
+  - Parse args.zAxisCompensation
+  - Update state
+
+- [ ] **PH14-03**: Add coolingLeftFan to printerCtl_cmd
+  - File: `electron/main/services/HttpServer.ts`
+  - Parse args.coolingLeftFan
+  - Update state.fan.coolingLeftFanSpeed
+
+### Phase 15: Material Station Fixes
+
+- [ ] **PH15-01**: Fix slot indexing inconsistency
+  - File: `electron/main/services/HttpServer.ts` (line 412)
+  - Document 0-based vs 1-based convention
+  - Fix the slotId - 1 calculation
+
+- [ ] **PH15-02**: Add indepMatlInfo properties
+  - File: `shared/types/printer.ts`
+  - Add materialColor and materialName to IndepMatlInfo
+
+- [ ] **PH15-03**: Return complete indepMatlInfo in /detail
+  - File: `electron/main/services/HttpServer.ts`
+  - Populate materialColor and materialName from current slot
+
+### Phase 16: M119 Status Mapping
+
+- [ ] **PH16-01**: Add pausing to M119 status map
+  - File: `electron/main/services/TcpServer.ts` (lines 461-472)
+  - Map 'pausing' status
+
+- [ ] **PH16-02**: Add cancel to M119 status map
+  - File: `electron/main/services/TcpServer.ts`
+  - Map 'cancel' status if it exists
 
 ---
 
-## Pass Conditions (When Is This Complete?)
+## Constraints (Do NOT Violate)
 
-### Must Be True
-1. All Phase 1-7 tasks are complete
-2. `npm run lint` passes with zero errors
-3. `npm run type-check` passes with zero errors
-4. `npm run build` completes successfully
-5. Application launches in both development and production modes
-6. TCP server accepts connections on port 8899
-7. HTTP server accepts requests on port 8898
-8. All documented commands/endpoints are implemented
-9. UI displays real-time state changes
-10. TIMELOG.md is complete with all sessions
+The agent MUST NOT:
 
-### Verification Commands
+1. Type Safety: No `any` types, explicit types required
+2. Lint Errors: Must NOT push with `npm run lint` errors
+3. Format Errors: Must NOT push with `npm run check` errors
+4. Type Errors: Must NOT push with `npm run type-check` errors
+5. Breaking Changes: Update all usages when changing types
+6. New Dependencies: No new npm packages
+7. Co-Authored Lines: Do NOT include in commits
+
+---
+
+## Pass Conditions
+
+Workflow complete ONLY when:
+
+- [ ] All tasks above marked complete
+- [ ] `npm run type-check` passes (0 errors)
+- [ ] `npm run lint` passes (0 errors)
+- [ ] `npm run build` succeeds
+
+---
+
+## Verification Commands
+
+After EACH task, run ALL of these:
+
 ```bash
-npm run lint          # Biome lint check
-npm run type-check    # TypeScript type check
-npm run build         # Production build
-npm run dev           # Development mode
+npm run type-check
+npm run lint
+npm run check
+npm run build
 ```
+
+**IF ANY FAIL**: Fix before committing. Do NOT push with errors.
+
+---
+
+## Time Tracking Workflow
+
+1. **Get start time**: Record when task starts (use get-time skill or read TIMELOG.md)
+2. **Complete task**: Implement, verify commands pass
+3. **Get end time**: Use get-time skill
+4. **Update TIMELOG.md**: Append entry with date, task ID, description, start, end, duration
+5. **Commit TIMELOG.md**: `git add TIMELOG.md && git commit -m "chore: update timelog" && git push`
+6. **Commit work**: `git add . && git commit -m "[message]" && git push`
+
+---
+
+## Available Skills
+
+Skills use **progressive disclosure**. Read SKILL.md first, branch out as needed.
+
+### Best Practices & Code Quality
+
+| Skill | When to Use | Path |
+|-------|-------------|------|
+| best-practices | SOLID, DRY, KISS, YAGNI, architectural principles | `.claude/skills/best-practices/SKILL.md` |
+| typescript-best-practices | Type safety, discriminated unions, type guards | `.claude/skills/typescript-best-practices/SKILL.md` |
+| biome | Linting, formatting, Biome configuration | `.claude/skills/biome/SKILL.md` |
+
+### Project References (CRITICAL for this work)
+
+| Skill | When to Use | Path |
+|-------|-------------|------|
+| ff-5mp-api-ts | Production FlashForge 5MP API client (FiveMClient, FlashForgeClient, types) | `.claude/skills/ff-5mp-api-ts/SKILL.md` |
+| flashforge-api-docs | Raw TCP/HTTP/UDP protocol specifications | `.claude/skills/flashforge-api-docs/SKILL.md` |
+| flashforge-ui-reference | What FlashForgeUI expects from printers | `.claude/skills/flashforge-ui-reference/SKILL.md` |
+
+### Time Tracking
+
+| Skill | When to Use | Path |
+|-------|-------------|------|
+| get-time | Get current timestamp for TIMELOG.md entries | `.claude/skills/get-time/SKILL.md` |
+
+### Electron & Build Tools
+
+| Skill | When to Use | Path |
+|-------|-------------|------|
+| electron | Electron APIs, main/renderer/preload processes | `.claude/skills/electron/SKILL.md` |
+| electron-vite | Electron + Vite build configuration | `.claude/skills/electron-vite/SKILL.md` |
+| electron-builder | Electron app packaging and distribution | `.claude/skills/electron-builder/SKILL.md` |
+| electron-store | Data persistence in Electron apps | `.claude/skills/electron-store/SKILL.md` |
+
+### React & Frontend
+
+| Skill | When to Use | Path |
+|-------|-------------|------|
+| react-19 | React 19 features, hooks, Server Components | `.claude/skills/react-19/SKILL.md` |
+| modern-frontend-design | High-quality frontend interfaces, design patterns | `.claude/skills/modern-frontend-design/SKILL.md` |
+| tailwind-css | Tailwind CSS v3/v4 utilities and styling | `.claude/skills/tailwind-css/SKILL.md` |
+| lucide-react | Icon components | `.claude/skills/lucide-react/SKILL.md` |
+
+### Utilities
+
+| Skill | When to Use | Path |
+|-------|-------------|------|
+| skill-factory | Create skills from codebases | `.claude/skills/skill-factory/SKILL.md` |
+| agent-factory | Create agents for codebases | `.claude/skills/agent-factory/SKILL.md` |
 
 ---
 
 ## Git Workflow
 
-### Branch Strategy
-- Main branch: `main`
-- Development branch: `develop`
-- Feature branches: `feature/phase-{N}-{description}`
+- **Branch**: `feature/emulator-gap-closures`
+- **Commit**: After each task
+- **Push**: After each commit
+- **Format**: `[phase]: [description]`
+- **NO Co-Authored-By**
 
-### Commit Convention
-- After each phase/task completion
-- Commit message format:
-  ```
-  {phase}: {description}
-
-  - {detail 1}
-  - {detail 2}
-
-  Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
-  ```
-
-### Push Strategy
-- Push after each significant task completion
-- Never push broken builds
-- Always run lint/type-check before push
+Time log commits separate: `chore: update timelog`
 
 ---
 
-## Iteration Settings
+## Key Files
 
-### Maximum Iterations: 100
-
-This is a large project with multiple phases. Estimated iterations:
-- Phase 1 (Setup): 5-10 iterations
-- Phase 2 (State): 10-15 iterations
-- Phase 3 (TCP): 15-20 iterations
-- Phase 4 (HTTP): 15-20 iterations
-- Phase 5 (AD5X): 5-10 iterations
-- Phase 6 (UI): 20-25 iterations
-- Phase 7 (Testing): 5-10 iterations
-- Phase 8 (Docs): 5-10 iterations
-
-### Max-Turns Per Iteration: 50
-
-Allows for complex multi-file changes within a single iteration.
-
----
-
-## Time Tracking
-
-**Start Time:** Thursday, January 22, 2026 at 09:31:01 PM EST
-
-All time entries will be recorded in `TIMELOG.md` following this format:
-
-```markdown
-### Session {N}: {Date}
-
-**Start:** {timestamp}
-**End:** {timestamp}
-**Duration:** {calculated duration}
-
-**Tasks Completed:**
-- [x] {task 1}
-- [x] {task 2}
-
-**Accomplishments:**
-- {what was built/achieved}
-
-**Total Time: {duration}**
-```
-
----
-
-## Notes
-
-- This is a greenfield project - build from scratch
-- Reference existing implementations in `ai_reference/` for patterns
-- Always invoke skills when working on related technologies
-- Keep code DRY and follow SOLID principles
-- Test via manual runtime (user will handle)
-- Static checks (lint, type-check) must pass
-
----
-
-**Last Updated:** Thursday, January 22, 2026 at 09:31:01 PM EST
+| File | Purpose |
+|------|---------|
+| `electron/main/services/TcpServer.ts` | TCP commands |
+| `electron/main/services/HttpServer.ts` | HTTP endpoints |
+| `electron/main/state/PrinterStateStore.ts` | State |
+| `shared/types/printer.ts` | Types |
+| `src/components/FileManager.tsx` | File UI |
