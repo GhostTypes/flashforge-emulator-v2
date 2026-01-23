@@ -1,5 +1,6 @@
 # Electron Vite output
 /dist-electron/
+/out/
 
 # Release builds
 /release/
