@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(get-time)",
+      "Bash(python:*)",
+      "Skill(biome)",
+      "Skill(tailwind-css)"
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+---
+title: "Justify Items"
+description: "Utilities for controlling how grid items are aligned along their inline axis."
+---

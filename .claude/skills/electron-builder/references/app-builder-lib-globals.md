@@ -1,0 +1,121 @@
+# https://www.electron.build/app-builder-lib/globals
+
+# app-builder-lib
+
+[Electron-Builder](/packages) / app-builder-lib
+
+## Enumerations
+
+* [Arch](/app-builder-lib.enumeration.arch)
+
+## Classes
+
+* [AppInfo](/app-builder-lib.class.appinfo)
+* [CancellationToken](/app-builder-lib.class.cancellationtoken)
+* [LinuxPackager](/app-builder-lib.class.linuxpackager)
+* [MacPackager](/app-builder-lib.class.macpackager)
+* [Packager](/app-builder-lib.class.packager)
+* [Platform](/app-builder-lib.class.platform)
+* [PlatformPackager](/app-builder-lib.class.platformpackager)
+* [PublishManager](/app-builder-lib.class.publishmanager)
+* [Target](/app-builder-lib.class.target)
+* [WinPackager](/app-builder-lib.class.winpackager)
+
+## Interfaces
+
+* [AppImageOptions](/app-builder-lib.interface.appimageoptions)
+* [AppXOptions](/app-builder-lib.interface.appxoptions)
+* [ArtifactBuildStarted](/app-builder-lib.interface.artifactbuildstarted)
+* [ArtifactCreated](/app-builder-lib.interface.artifactcreated)
+* [AsarOptions](/app-builder-lib.interface.asaroptions)
+* [AuthorMetadata](/app-builder-lib.interface.authormetadata)
+* [BeforeBuildContext](/app-builder-lib.interface.beforebuildcontext)
+* [BuildResult](/app-builder-lib.interface.buildresult)
+* [CertificateFromStoreInfo](/app-builder-lib.interface.certificatefromstoreinfo)
+* [CommonConfiguration](/app-builder-lib.interface.commonconfiguration)
+* [CommonLinuxOptions](/app-builder-lib.interface.commonlinuxoptions)
+* [CommonNsisOptions](/app-builder-lib.interface.commonnsisoptions)
+* [CommonWindowsInstallerConfiguration](/app-builder-lib.interface.commonwindowsinstallerconfiguration)
+* [Configuration](/app-builder-lib.interface.configuration)
+* [CustomNsisBinary](/app-builder-lib.interface.customnsisbinary)
+* [CustomWindowsSignTaskConfiguration](/app-builder-lib.interface.customwindowssigntaskconfiguration)
+* [DebOptions](/app-builder-lib.interface.deboptions)
+* [DmgContent](/app-builder-lib.interface.dmgcontent)
+* [DmgOptions](/app-builder-lib.interface.dmgoptions)
+* [DmgWindow](/app-builder-lib.interface.dmgwindow)
+* [ElectronBrandingOptions](/app-builder-lib.interface.electronbrandingoptions)
+* [ElectronDownloadOptions](/app-builder-lib.interface.electrondownloadoptions)
+* [FileAssociation](/app-builder-lib.interface.fileassociation)
+* [FileCodeSigningInfo](/app-builder-lib.interface.filecodesigninginfo)
+* [FilesBuildOptions](/app-builder-lib.interface.filesbuildoptions)
+* [FileSet](/app-builder-lib.interface.fileset)
+* [FlatpakOptions](/app-builder-lib.interface.flatpakoptions)
+* [ForgeOptions](/app-builder-lib.interface.forgeoptions)
+* [Framework](/app-builder-lib.interface.framework)
+* [FuseOptionsV1](/app-builder-lib.interface.fuseoptionsv1)
+* [Hooks](/app-builder-lib.interface.hooks)
+* [LinuxConfiguration](/app-builder-lib.interface.linuxconfiguration)
+* [LinuxDesktopFile](/app-builder-lib.interface.linuxdesktopfile)
+* [LinuxTargetSpecificOptions](/app-builder-lib.interface.linuxtargetspecificoptions)
+* [MacConfiguration](/app-builder-lib.interface.macconfiguration)
+* [MasConfiguration](/app-builder-lib.interface.masconfiguration)
+* [Metadata](/app-builder-lib.interface.metadata)
+* [MetadataDirectories](/app-builder-lib.interface.metadatadirectories)
+* [MsiOptions](/app-builder-lib.interface.msioptions)
+* [MsiWrappedOptions](/app-builder-lib.interface.msiwrappedoptions)
+* [NsisOptions](/app-builder-lib.interface.nsisoptions)
+* [NsisWebOptions](/app-builder-lib.interface.nsisweboptions)
+* [PackagerOptions](/app-builder-lib.interface.packageroptions)
+* [PackContext](/app-builder-lib.interface.packcontext)
+* [PkgBackgroundOptions](/app-builder-lib.interface.pkgbackgroundoptions)
+* [PkgOptions](/app-builder-lib.interface.pkgoptions)
+* [PlatformSpecificBuildOptions](/app-builder-lib.interface.platformspecificbuildoptions)
+* [PlugDescriptor](/app-builder-lib.interface.plugdescriptor)
+* [PortableOptions](/app-builder-lib.interface.portableoptions)
+* [PrepareApplicationStageDirectoryOptions](/app-builder-lib.interface.prepareapplicationstagedirectoryoptions)
+* [ProgressInfo](/app-builder-lib.interface.progressinfo)
+* [Protocol](/app-builder-lib.interface.protocol)
+* [PublishOptions](/app-builder-lib.interface.publishoptions)
+* [ReleaseInfo](/app-builder-lib.interface.releaseinfo)
+* [RepositoryInfo](/app-builder-lib.interface.repositoryinfo)
+* [SlotDescriptor](/app-builder-lib.interface.slotdescriptor)
+* [SnapOptions](/app-builder-lib.interface.snapoptions)
+* [SourceRepositoryInfo](/app-builder-lib.interface.sourcerepositoryinfo)
+* [SquirrelWindowsOptions](/app-builder-lib.interface.squirrelwindowsoptions)
+* [TargetConfiguration](/app-builder-lib.interface.targetconfiguration)
+* [TargetSpecificOptions](/app-builder-lib.interface.targetspecificoptions)
+* [UploadTask](/app-builder-lib.interface.uploadtask)
+* [WindowsAzureSigningConfiguration](/app-builder-lib.interface.windowsazuresigningconfiguration)
+* [WindowsConfiguration](/app-builder-lib.interface.windowsconfiguration)
+* [WindowsSignOptions](/app-builder-lib.interface.windowssignoptions)
+* [WindowsSignTaskConfiguration](/app-builder-lib.interface.windowssigntaskconfiguration)
+* [WindowsSigntoolConfiguration](/app-builder-lib.interface.windowssigntoolconfiguration)
+
+## Type Aliases
+
+* [AfterExtractContext](/app-builder-lib.typealias.afterextractcontext)
+* [AfterPackContext](/app-builder-lib.typealias.afterpackcontext)
+* [BackgroundAlignment](/app-builder-lib.typealias.backgroundalignment)
+* [BackgroundScaling](/app-builder-lib.typealias.backgroundscaling)
+* [BeforePackContext](/app-builder-lib.typealias.beforepackcontext)
+* [CompressionLevel](/app-builder-lib.typealias.compressionlevel)
+* [CustomMacSign](/app-builder-lib.typealias.custommacsign)
+* [CustomMacSignOptions](/app-builder-lib.typealias.custommacsignoptions)
+* [CustomWindowsSign](/app-builder-lib.typealias.customwindowssign)
+* [ElectronPlatformName](/app-builder-lib.typealias.electronplatformname)
+* [Hook](/app-builder-lib.typealias.hook)
+* [MacOsTargetName](/app-builder-lib.typealias.macostargetname)
+* [TargetConfigType](/app-builder-lib.typealias.targetconfigtype)
+
+## Variables
+
+* [DEFAULT\_TARGET](/app-builder-lib.variable.default_target)
+* [DIR\_TARGET](/app-builder-lib.variable.dir_target)
+
+## Functions
+
+* [archFromString](/app-builder-lib.function.archfromstring)
+* [build](/app-builder-lib.function.build)
+* [buildForge](/app-builder-lib.function.buildforge)
+* [checkBuildRequestOptions](/app-builder-lib.function.checkbuildrequestoptions)
+* [getArchSuffix](/app-builder-lib.function.getarchsuffix)

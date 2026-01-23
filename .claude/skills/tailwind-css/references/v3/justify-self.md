@@ -1,0 +1,4 @@
+---
+title: "Justify Self"
+description: "Utilities for controlling how an individual grid item is aligned along its inline axis."
+---

@@ -1,0 +1,4 @@
+---
+title: "Font Smoothing"
+description: "Utilities for controlling the font smoothing of an element."
+---

@@ -1,0 +1,21 @@
+{
+  "name": "tailwind-docs-scraper",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Scraper for Tailwind CSS documentation (MDX to Markdown)",
+  "scripts": {
+    "scrape": "node scrape-tailwind-docs.js",
+    "scrape:simple": "node scrape-simple.js",
+    "scrape:v3": "node scrape-tailwind-docs.js --v3"
+  },
+  "dependencies": {
+    "mdx-bundler": "^10.0.3",
+    "node-html-markdown": "^1.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "esbuild": "^0.24.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

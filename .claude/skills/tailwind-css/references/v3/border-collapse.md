@@ -1,0 +1,4 @@
+---
+title: "Border Collapse"
+description: "Utilities for controlling whether table borders should collapse or be separated."
+---

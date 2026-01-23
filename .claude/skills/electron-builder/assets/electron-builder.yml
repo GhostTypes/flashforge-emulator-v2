@@ -1,0 +1,79 @@
+# electron-builder configuration template
+# Copy this file to your project root as electron-builder.yml
+# Or rename to electron-builder.json5, electron-builder.json, electron-builder.toml, or electron-builder.js
+
+# Application ID - required for all platforms
+appId: "com.example.myapp"
+
+# Product name (defaults to package.json name)
+# productName: "My App"
+
+# Directory to output build artifacts
+# directory: build
+
+# Files to include/exclude from package
+# files:
+#   - "**/*"
+#   - "!**/*.ts"
+#   - "!*.map"
+#   - "!**/*.map"
+
+# Extra metadata to add to package.json in the app
+# extraMetadata:
+#   main: "main.js"
+
+# asar packing (default: true)
+# asar: true
+
+# macOS configuration
+mac:
+  category: "public.app-category.productivity"
+  # icon: "build/icon.icns"
+  # target: ["dmg", "zip"]
+  # hardenedRuntime: true
+  # gatekeeperAssess: false
+  # entitlements: "build/entitlements.mac.plist"
+  # entitlementsInherit: "build/entitlements.mac.plist"
+
+# Windows configuration
+win:
+  # icon: "build/icon.ico"
+  target: ["nsis"]
+  # artifactName: "${productName}-${version}.${ext}"
+
+# Linux configuration
+linux:
+  category: "Development"
+  # icon: "build/icons"
+  target: ["AppImage", "deb", "rpm"]
+  synopsis: "My Electron Application"
+  description: "Description of my application"
+
+# DMG configuration (macOS)
+dmg:
+  title: "${productName} ${version}"
+  background: "build/background.png"
+  window:
+    width: 540
+    height: 380
+  # contents: []
+
+# NSIS configuration (Windows)
+nsis:
+  oneClick: true
+  allowToChangeInstallationDirectory: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  perMachine: false
+
+# AppImage configuration (Linux)
+appImage:
+  license: "LICENSE"
+  # category: "Development"
+
+# Publishing / Auto Update
+publish:
+  provider: "github"
+  owner: "myorg"
+  repo: "myapp"
+  # releaseType: "release"
