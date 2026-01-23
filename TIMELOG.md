@@ -29,5 +29,6 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T18:49:25-05:00 | 2026-01-23T18:50:03-05:00 | PH2-02: Fix /gcodeThumb to return PNG data | ~1 minute |
 | 2026-01-23T18:51:01-05:00 | 2026-01-23T18:52:03-05:00 | PH2-03: Add AD5X parameters to /printGcode handler | ~1 minute |
 | 2026-01-23T18:53:31-05:00 | 2026-01-23T18:54:46-05:00 | PH2-04: Process AD5X headers in /uploadGcode | ~1 minute |
+| 2026-01-23T18:56:01-05:00 | 2026-01-23T18:57:01-05:00 | PH2-05: Add coolingLeftFanSpeed to /detail response | ~1 minute |
 
 ---
