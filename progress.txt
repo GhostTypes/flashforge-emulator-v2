@@ -13,7 +13,11 @@
   - Added normalizedCommand handling to strip tilde prefix
   - Added check for "M601 S1" format
   - File: electron/main/services/TcpServer.ts (line ~316)
-- [ ] PH1-02: Implement M112 emergency stop
+- [x] PH1-02: Implement M112 emergency stop
+  - Added handler for M112 command
+  - Calls stopPrint() and sets machineStatus to 'idle'
+  - Works even without control active (emergency command)
+  - File: electron/main/services/TcpServer.ts (line ~395, handler ~662)
 - [x] PH1-03: Add tilde prefix support to remaining TCP commands
   - Refactored all command checks to use normalizedCommand
   - Now handles: M115, M105, M119, M114, M27, M661, M662, G28, M23, M24, M25, M26, M104, M140, M146

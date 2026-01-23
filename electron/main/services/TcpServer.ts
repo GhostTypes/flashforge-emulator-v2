@@ -391,6 +391,11 @@ export class TcpServer extends EventEmitter {
       return this.#handleM146(command);
     }
 
+    // Emergency stop (works even without control)
+    if (normalizedCommand === 'M112') {
+      return this.#handleM112();
+    }
+
     // Unknown command - return ok anyway (printer behavior)
     return new ResponseBuilder().cmdReceived(command).build();
   }
@@ -648,6 +653,16 @@ export class TcpServer extends EventEmitter {
     printerStateStore.updateLed(enabled, red, green, blue);
 
     return new ResponseBuilder().cmdReceived('M146').build();
+  }
+
+  /**
+   * M112 - Emergency stop
+   * Immediately stops any print in progress and sets status to idle
+   */
+  #handleM112(): string {
+    printerStateStore.stopPrint();
+    printerStateStore.setMachineStatus('idle');
+    return new ResponseBuilder().cmdReceived('M112').build();
   }
 
   /**
