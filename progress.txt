@@ -34,6 +34,11 @@
   - Added placeholderPng constant with 1x1 transparent PNG base64
   - Modified #handleGcodeThumb to return placeholder instead of empty string
   - File: electron/main/services/HttpServer.ts (lines ~602-606)
+- [x] PH2-03: Add AD5X parameters to /printGcode handler
+  - Parse flowCalibration, useMatlStation, gcodeToolCnt, materialMappings from request body
+  - Store in ad5xParams object and emit with print-started event
+  - Stored for future implementation (as per PRD)
+  - File: electron/main/services/HttpServer.ts (lines ~636-642)
 
 ### Phase 3: State Management - Part 1 (Cumulative Stats)
 [None started yet]

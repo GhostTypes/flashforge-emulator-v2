@@ -633,8 +633,16 @@ export class HttpServer extends EventEmitter {
       return;
     }
 
+    // Parse AD5X parameters (stored for future implementation)
+    const ad5xParams = {
+      flowCalibration: body.flowCalibration ?? false,
+      useMatlStation: body.useMatlStation ?? false,
+      gcodeToolCnt: body.gcodeToolCnt ?? 0,
+      materialMappings: body.materialMappings ?? [],
+    };
+
     printerStateStore.startPrint(fileName, file.printTime);
-    this.emit('print-started', { fileName });
+    this.emit('print-started', { fileName, ad5xParams });
     res.json(this.#success());
   });
 
