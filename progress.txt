@@ -45,6 +45,11 @@
   - Base64 decode and JSON parse materialMappings if present
   - Store in ad5xParams object and emit with upload-complete and print-started events
   - File: electron/main/services/HttpServer.ts (lines ~668-728)
+- [x] PH2-05: Add coolingLeftFanSpeed to /detail response
+  - Added coolingLeftFanSpeed property to FanState interface
+  - Initialize to 0 in PrinterStateStore fan state
+  - Add to /detail response with conditional value based on hasMaterialStation
+  - File: shared/types/printer.ts (line ~156), PrinterStateStore.ts (line ~100), HttpServer.ts (line ~385)
 
 ### Phase 3: State Management - Part 1 (Cumulative Stats)
 [None started yet]

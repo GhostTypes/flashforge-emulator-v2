@@ -97,6 +97,7 @@ function createDefaultState(model: PrinterModel): PrinterState {
     },
     fan: {
       coolingFanSpeed: 0,
+      coolingLeftFanSpeed: 0,
       chamberFanSpeed: 0,
       externalFanEnabled: false,
       internalFanEnabled: false,
