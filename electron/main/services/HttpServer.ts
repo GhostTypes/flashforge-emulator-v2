@@ -25,6 +25,36 @@ interface AuthCredentials {
 }
 
 /**
+ * G-code file entry with detailed information (AD5X format)
+ */
+interface GcodeFileEntry {
+  /** The name of the G-code file */
+  gcodeFileName: string;
+  /** Number of tools/materials used */
+  gcodeToolCnt?: number;
+  /** Detailed information for each tool/material */
+  gcodeToolDatas?: GcodeToolData[];
+  /** Estimated printing time in seconds */
+  printingTime: number;
+  /** Total estimated filament weight in grams */
+  totalFilamentWeight?: number;
+  /** Whether the file uses material station */
+  useMatlStation?: boolean;
+}
+
+/**
+ * Tool data for G-code file entry
+ */
+interface GcodeToolData {
+  /** Tool ID (0-based) */
+  toolId: number;
+  /** Material name */
+  materialName?: string;
+  /** Material color hex code */
+  materialColor?: string;
+}
+
+/**
  * Standard API response wrapper
  */
 interface ApiResponse<T = unknown> {
@@ -33,6 +63,7 @@ interface ApiResponse<T = unknown> {
   detail?: T;
   product?: T;
   gcodeList?: T;
+  gcodeListDetail?: GcodeFileEntry[];
   imageData?: string;
 }
 
@@ -538,8 +569,16 @@ export class HttpServer extends EventEmitter {
     const files = printerStateStore.getFiles();
     const fileNames = files.slice(0, 10).map((f) => f.name);
 
+    // Build gcodeListDetail array (empty for now as per PRD)
+    const gcodeListDetail: GcodeFileEntry[] = [];
+
     this.emit('response-sent', { path: '/gcodeList', count: fileNames.length });
-    res.json(this.#success(fileNames, 'gcodeList'));
+    res.json({
+      code: ResponseCode.Success,
+      message: 'Success',
+      gcodeList: fileNames,
+      gcodeListDetail,
+    } satisfies ApiResponse);
   });
 
   /**
