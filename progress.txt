@@ -56,6 +56,12 @@
   - Added cumulativePrintTime and cumulativeFilament properties to PrinterState
   - Initialized both to 0 in PrinterStateStore.createDefaultState
   - File: shared/types/printer.ts (lines ~243-246), PrinterStateStore.ts (lines ~123-124)
+- [x] PH3-02: Initialize cumulative stats in StateStore
+  - Added cumulativePrintTime and cumulativeFilament to EmulatorConfig interface
+  - Initialize both to 0 in DEFAULT_CONFIG
+  - Load from config in initialize() method for persistence
+  - Added handlers in updateConfig() to sync state with config values
+  - File: shared/types/printer.ts (lines ~386-389, ~405-406), PrinterStateStore.ts (lines ~197-199, ~229-234)
 
 [... remaining phases not started ...]
 

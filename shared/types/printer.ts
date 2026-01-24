@@ -383,6 +383,10 @@ export interface EmulatorConfig {
   autoStart: boolean;
   /** Network interface for UDP discovery (empty = all interfaces) */
   discoveryInterface: string;
+  /** Cumulative print time in seconds (persists across sessions) */
+  cumulativePrintTime: number;
+  /** Cumulative filament used in meters (persists across sessions) */
+  cumulativeFilament: number;
 }
 
 /**
@@ -398,4 +402,6 @@ export const DEFAULT_CONFIG: EmulatorConfig = {
   simulationSpeed: 100,
   autoStart: false,
   discoveryInterface: '',
+  cumulativePrintTime: 0,
+  cumulativeFilament: 0,
 } as const;
