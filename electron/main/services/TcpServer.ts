@@ -513,10 +513,13 @@ export class TcpServer extends EventEmitter {
       ready: 'READY',
       busy: 'BUSY',
       printing: 'BUILDING_FROM_SD',
+      pausing: 'PAUSED', // Transition state before fully paused
       paused: 'PAUSED',
+      cancel: 'BUSY', // Canceling is an active operation
       completed: 'BUILDING_COMPLETED',
       heating: 'BUSY',
       error: 'READY',
+      calibrate_doing: 'BUSY', // Calibration is an active operation
     };
 
     const machineStatus = statusMap[state.machineStatus] ?? 'READY';
