@@ -111,4 +111,9 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T19:53:25-05:00 | 2026-01-23T19:56:35-05:00 | PH13-03: Extend PrinterFile type | ~3 minutes |
 | 2026-01-23T19:57:00-05:00 | 2026-01-23T19:59:44-05:00 | PH13-04: Extract thumbnails from uploaded G-code | ~3 minutes |
 
+### 2026-01-23 - Phase 14 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T20:03:00-05:00 | 2026-01-23T20:09:40-05:00 | PH14-01 through PH14-03: Control Commands (temperatureCtl_cmd, zAxisCompensation, coolingLeftFan) | ~7 minutes |
+
 ---
