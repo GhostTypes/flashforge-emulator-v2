@@ -83,6 +83,12 @@
   - Completed as part of PH4-01 (required for type safety)
   - All four properties initialized to 0 in createDefaultState
   - File: electron/main/state/PrinterStateStore.ts (lines ~126-129)
+- [x] PH4-03: Calculate filament estimates during print
+  - Added filament estimate calculations to simulatePrintProgress
+  - estimatedRightWeight = (progress / 100) * 100g (crude estimate)
+  - estimatedRightLen = (progress / 100) * 1000mm (crude estimate)
+  - Left extruder estimates remain 0 (AD5X dual extrusion not yet implemented)
+  - File: electron/main/state/PrinterStateStore.ts (lines ~432-436)
 
 [... remaining phases not started ...]
 
