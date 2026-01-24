@@ -123,6 +123,10 @@ function createDefaultState(model: PrinterModel): PrinterState {
     autoShutdownTime: 30,
     cumulativePrintTime: 0,
     cumulativeFilament: 0,
+    estimatedRightLen: 0,
+    estimatedRightWeight: 0,
+    estimatedLeftLen: 0,
+    estimatedLeftWeight: 0,
   };
 }
 

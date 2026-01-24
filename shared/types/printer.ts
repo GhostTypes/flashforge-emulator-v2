@@ -244,6 +244,14 @@ export interface PrinterState {
   cumulativePrintTime: number;
   /** Cumulative filament used across all jobs in meters */
   cumulativeFilament: number;
+  /** Estimated right filament length for current job in mm */
+  estimatedRightLen: number;
+  /** Estimated right filament weight for current job in grams */
+  estimatedRightWeight: number;
+  /** Estimated left filament length for current job in mm (AD5X only) */
+  estimatedLeftLen: number;
+  /** Estimated left filament weight for current job in grams (AD5X only) */
+  estimatedLeftWeight: number;
 }
 
 /**

@@ -74,6 +74,16 @@
   - Replaced hardcoded 0 with state.cumulativeFilament and state.cumulativePrintTime
   - File: electron/main/services/HttpServer.ts (lines ~386-387)
 
+### Phase 4: State Management - Part 2 (Filament Estimates)
+- [x] PH4-01: Add filament estimate properties to types
+  - Added estimatedRightLen, estimatedRightWeight, estimatedLeftLen, estimatedLeftWeight to PrinterState
+  - Initialize all to 0 in createDefaultState
+  - Files: shared/types/printer.ts (lines ~247-254), PrinterStateStore.ts (lines ~126-129)
+- [x] PH4-02: Initialize filament estimates in StateStore
+  - Completed as part of PH4-01 (required for type safety)
+  - All four properties initialized to 0 in createDefaultState
+  - File: electron/main/state/PrinterStateStore.ts (lines ~126-129)
+
 [... remaining phases not started ...]
 
 ## Notes
