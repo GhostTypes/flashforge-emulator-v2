@@ -549,6 +549,7 @@ export class PrinterStateStore extends EventEmitter {
     settings: Partial<{
       coolingFanSpeed: number;
       chamberFanSpeed: number;
+      coolingLeftFanSpeed: number;
       externalFanEnabled: boolean;
       internalFanEnabled: boolean;
     }>
@@ -570,6 +571,14 @@ export class PrinterStateStore extends EventEmitter {
    */
   setRunoutSensorEnabled(enabled: boolean): void {
     this.#state.runoutSensorEnabled = enabled;
+    this.emit('state-changed', this.#state);
+  }
+
+  /**
+   * Updates Z-axis compensation value
+   */
+  updateZAxisCompensation(value: number): void {
+    this.#state.zAxisCompensation = value;
     this.emit('state-changed', this.#state);
   }
 

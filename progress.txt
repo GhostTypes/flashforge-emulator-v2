@@ -289,6 +289,23 @@
   - Falls back to placeholder PNG if no thumbnail found in G-code
   - File: electron/main/services/HttpServer.ts (lines 140-200, 766-783, 643-664)
 
+### Phase 14: Control Commands
+- [x] PH14-01: Add temperatureCtl_cmd to /control
+  - Added temperatureCtl_cmd case to #handleControl in HttpServer.ts
+  - Extends ControlArgs interface with: platformTemp, rightTemp, leftTemp, chamberTemp
+  - Updates state temperatures via printerStateStore.updateTemperature for each parameter
+  - File: electron/main/services/HttpServer.ts (lines 69-74, 619-635)
+- [x] PH14-02: Add zAxisCompensation to printerCtl_cmd
+  - Added zAxisCompensation handling to printerCtl_cmd case
+  - Created updateZAxisCompensation method in PrinterStateStore
+  - Updates state.zAxisCompensation when provided
+  - File: electron/main/services/HttpServer.ts (lines 569-571), PrinterStateStore.ts (lines 576-582)
+- [x] PH14-03: Add coolingLeftFan to printerCtl_cmd
+  - Added coolingLeftFan handling to printerCtl_cmd case
+  - Extended updateFan method to support coolingLeftFanSpeed parameter
+  - Updates state.fan.coolingLeftFanSpeed when provided
+  - File: electron/main/services/HttpServer.ts (lines 572-574), PrinterStateStore.ts (line 552)
+
 [... remaining phases not started ...]
 
 ## Notes
