@@ -113,6 +113,25 @@
   - Now returns state.temperature.leftNozzleTarget and state.temperature.leftNozzleCurrent
   - File: electron/main/services/HttpServer.ts (lines ~403-404)
 
+### Phase 6: State Management - Part 4 (Fan and Material Detection)
+- [x] PH6-01: Add left cooling fan to FanState
+  - Already complete - coolingLeftFanSpeed was added to FanState interface
+  - File: shared/types/printer.ts (line ~159-160)
+- [x] PH6-02: Initialize left fan in StateStore
+  - Already complete - coolingLeftFanSpeed initialized to 0 in createDefaultState
+  - File: electron/main/state/PrinterStateStore.ts (line ~103)
+- [x] PH6-03: Add material detection properties
+  - Added hasLeftFilament, hasRightFilament, leftFilamentType, rightFilamentType to PrinterState
+  - File: shared/types/printer.ts (lines ~259-266)
+- [x] PH6-04: Initialize material detection in StateStore
+  - Initialize: hasLeftFilament=false, hasRightFilament=true (default right loaded)
+  - Set rightFilamentType='PLA', leftFilamentType=''
+  - File: electron/main/state/PrinterStateStore.ts (lines ~132-135)
+- [x] PH6-05: Return material detection in /detail
+  - Add hasLeftFilament, hasRightFilament, leftFilamentType, rightFilamentType
+  - Changed from hardcoded values to state values
+  - File: electron/main/services/HttpServer.ts (lines ~402, ~424-427)
+
 [... remaining phases not started ...]
 
 ## Notes

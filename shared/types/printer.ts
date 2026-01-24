@@ -256,6 +256,14 @@ export interface PrinterState {
   estimatedLeftLen: number;
   /** Estimated left filament weight for current job in grams (AD5X only) */
   estimatedLeftWeight: number;
+  /** Whether filament is detected in left extruder (AD5X only) */
+  hasLeftFilament: boolean;
+  /** Whether filament is detected in right extruder */
+  hasRightFilament: boolean;
+  /** Left filament material type (e.g., "PLA", "PETG") */
+  leftFilamentType: string;
+  /** Right filament material type (e.g., "PLA", "PETG") */
+  rightFilamentType: string;
 }
 
 /**
