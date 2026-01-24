@@ -8,7 +8,7 @@ Branch: feature/emulator-gap-closures
 ### Priority 1 (Critical)
 - [x] P1-01: Fix field name: coolingLeftFanSpeed → coolingFanLeftSpeed
 - [x] P1-02: Fix nozzleCount for AD5X (should be 2, not 1)
-- [ ] P1-03: Fix machineName for AD5X detection
+- [x] P1-03: Fix machineName for AD5X detection
 - [ ] P1-04: Make left extruder fields AD5X-only
 - [ ] P1-05: Populate gcodeListDetail with actual file metadata
 - [ ] P1-06: Fix M105 temperature response format
@@ -26,3 +26,4 @@ Branch: feature/emulator-gap-closures
 ## Completed Tasks
 - [x] P1-01: Fixed field name in HttpServer.ts line 449 to match production API (coolingFanLeftSpeed)
 - [x] P1-02: Fixed nozzleCount in PrinterStateStore.ts line 121 to report 2 for AD5X, 1 for other models
+- [x] P1-03: Fixed machineName in PrinterStateStore.ts line 117 to return 'AD5X' for material station models, enabling proper detection by production API
