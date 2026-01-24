@@ -120,6 +120,8 @@ function createDefaultState(model: PrinterModel): PrinterState {
     doorOpen: false,
     autoShutdown: 'close',
     autoShutdownTime: 30,
+    cumulativePrintTime: 0,
+    cumulativeFilament: 0,
   };
 }
 

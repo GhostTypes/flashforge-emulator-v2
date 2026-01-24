@@ -52,7 +52,10 @@
   - File: shared/types/printer.ts (line ~156), PrinterStateStore.ts (line ~100), HttpServer.ts (line ~385)
 
 ### Phase 3: State Management - Part 1 (Cumulative Stats)
-[None started yet]
+- [x] PH3-01: Add cumulative stats to PrinterState interface
+  - Added cumulativePrintTime and cumulativeFilament properties to PrinterState
+  - Initialized both to 0 in PrinterStateStore.createDefaultState
+  - File: shared/types/printer.ts (lines ~243-246), PrinterStateStore.ts (lines ~123-124)
 
 [... remaining phases not started ...]
 
