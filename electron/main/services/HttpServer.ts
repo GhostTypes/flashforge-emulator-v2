@@ -636,6 +636,17 @@ export class HttpServer extends EventEmitter {
 
       case 'temperatureCtl_cmd': {
         // Handle temperature control commands
+        const state = printerStateStore.state;
+        const hasNewTargetTemp =
+          (typeof args?.platformTemp === 'number' &&
+            args.platformTemp > state.temperature.bedCurrent) ||
+          (typeof args?.rightTemp === 'number' &&
+            args.rightTemp > state.temperature.nozzleCurrent) ||
+          (typeof args?.leftTemp === 'number' &&
+            args.leftTemp > state.temperature.leftNozzleCurrent) ||
+          (typeof args?.chamberTemp === 'number' &&
+            args.chamberTemp > state.temperature.chamberCurrent);
+
         if (typeof args?.platformTemp === 'number') {
           printerStateStore.updateTemperature({ bedTarget: args.platformTemp });
         }
@@ -648,6 +659,12 @@ export class HttpServer extends EventEmitter {
         if (typeof args?.chamberTemp === 'number') {
           printerStateStore.updateTemperature({ chamberTarget: args.chamberTemp });
         }
+
+        // Transition to 'heating' state if new target temps exceed current temps and status is idle
+        if (hasNewTargetTemp && state.machineStatus === 'idle') {
+          printerStateStore.setMachineStatus('heating');
+        }
+
         this.emit('command-executed', { cmd, args });
         break;
       }
