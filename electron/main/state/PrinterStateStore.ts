@@ -471,6 +471,13 @@ export class PrinterStateStore extends EventEmitter {
       job.estimatedTimeRemaining = Math.max(0, job.totalPrintTime - job.elapsedTime);
       job.currentLayer = Math.floor(job.progress * job.totalLayers);
 
+      // Update Z-axis position based on print progress
+      // Formula: (currentLayer / totalLayers) * 220 (max height in mm)
+      const maxHeight = 220;
+      if (job.totalLayers > 0) {
+        this.#state.position.z = (job.currentLayer / job.totalLayers) * maxHeight;
+      }
+
       // Update filament estimates based on progress
       // Crude estimate: 100g total, ~1000mm length per job (will be refined later)
       const progressPercent = job.progress * 100;

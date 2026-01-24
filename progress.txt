@@ -236,6 +236,13 @@
   - Returns ok without actual camera functionality (emulator limitation)
   - File: electron/main/services/TcpServer.ts (lines ~432-434, ~916-923)
 
+### Phase 12: Print Simulation Enhancements
+- [x] PH12-01: Implement Z-axis updates during print
+  - Added Z-axis position updates to simulatePrintProgress
+  - Formula: (currentLayer / totalLayers) * 220 (max height in mm)
+  - Z position updates automatically as print progresses through layers
+  - File: electron/main/state/PrinterStateStore.ts (lines ~474-479)
+
 [... remaining phases not started ...]
 
 ## Notes
