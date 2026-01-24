@@ -50,5 +50,7 @@ Tracking time spent on gap closure tasks.
 | Start | End | Task | Duration |
 |-------|-----|------|----------|
 | 2026-01-23T19:11:37-05:00 | 2026-01-23T19:12:16-05:00 | PH5-01: Add left extruder temps to TemperatureState | ~1 minute |
+| 2026-01-23T19:13:39-05:00 | 2026-01-23T19:14:32-05:00 | PH5-02: Initialize left extruder temps in StateStore | ~1 minute |
+| 2026-01-23T19:14:33-05:00 | 2026-01-23T19:14:33-05:00 | PH5-03: Add left temp simulation for AD5X | ~0 minutes |
 
 ---
