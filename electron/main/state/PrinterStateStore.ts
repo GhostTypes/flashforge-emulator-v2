@@ -118,7 +118,7 @@ function createDefaultState(model: PrinterModel): PrinterState {
     firmwareVersion: profile.defaultFirmware,
     macAddress: '00:11:22:33:44:55',
     ipAddress: '192.168.1.100',
-    nozzleCount: 1,
+    nozzleCount: profile.hasMaterialStation ? 2 : 1,
     nozzleModel: '0.4mm',
     doorOpen: false,
     autoShutdown: 'close',
