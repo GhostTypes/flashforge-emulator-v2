@@ -188,6 +188,36 @@
   - Supports both absolute (G90) and relative (G91) positioning modes
   - Updates position state via printerStateStore.updatePosition
   - File: electron/main/services/TcpServer.ts (lines ~370-372, ~600-645)
+- [x] PH9-03: Implement G1 (extrude E)
+  - Already implemented as part of PH9-02
+  - E-axis parsing and position updating included in #handleG1 method
+  - Supports both absolute and relative positioning for extruder
+  - File: electron/main/services/TcpServer.ts (lines ~632-637)
+
+### Phase 10: TCP Response Format Fixes
+- [x] PH10-01: Fix M662 to send binary PNG
+  - Changed M662 to async handler (accepts TcpClient parameter)
+  - Sends "ok" response immediately via client.socket.write()
+  - Uses setTimeout to write binary PNG data after 500ms delay
+  - PNG is decoded from base64 placeholder (1x1 transparent PNG)
+  - File: electron/main/services/TcpServer.ts (lines ~359-363, ~572-604)
+- [x] PH10-02: Fix M661 timing (delay file list)
+  - Changed M661 to async handler (accepts TcpClient parameter)
+  - Sends "ok" response immediately via client.socket.write()
+  - Uses setTimeout to write file list after 500ms delay
+  - Matches real printer behavior where data follows ok
+  - File: electron/main/services/TcpServer.ts (lines ~353-357, ~555-570)
+- [x] PH10-03: Fix M114 format (use A/B instead of E)
+  - Changed M114 response format from E: to A: and B:
+  - A: contains the E value (primary extruder position)
+  - B: is hardcoded to 0.000 (secondary extruder not yet implemented)
+  - Matches FlashForge dual-extruder protocol format
+  - File: electron/main/services/TcpServer.ts (lines ~527-540)
+- [x] PH10-04: Fix M105 format (add T1)
+  - Added T1 (left nozzle temperature) to M105 response
+  - Format now includes: T0 (right), T1 (left), B (bed)
+  - Uses state.temperature.leftNozzleCurrent and leftNozzleTarget
+  - File: electron/main/services/TcpServer.ts (lines ~480-489)
 
 [... remaining phases not started ...]
 
