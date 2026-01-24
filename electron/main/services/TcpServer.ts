@@ -371,6 +371,10 @@ export class TcpServer extends EventEmitter {
       return this.#handleG90();
     }
 
+    if (normalizedCommand === 'G91') {
+      return this.#handleG91();
+    }
+
     if (normalizedCommand.startsWith('G1 ')) {
       return this.#handleG1(command);
     }
@@ -634,6 +638,15 @@ export class TcpServer extends EventEmitter {
   #handleG90(): string {
     printerStateStore.setPositioningMode('absolute');
     return new ResponseBuilder().cmdReceived('G90').build();
+  }
+
+  /**
+   * G91 - Set relative positioning
+   * Sets the positioning mode to relative (coordinates are offsets from current position)
+   */
+  #handleG91(): string {
+    printerStateStore.setPositioningMode('relative');
+    return new ResponseBuilder().cmdReceived('G91').build();
   }
 
   /**
