@@ -16,7 +16,7 @@ Branch: feature/emulator-gap-closures
 
 ### Priority 2 (High)
 - [x] P2-01: Add G91 relative positioning command
-- [ ] P2-02: Fix indepMatlInfo structure
+- [x] P2-02: Fix indepMatlInfo structure
 - [ ] P2-03: Add measure field to /detail response
 - [ ] P2-04: Use extracted thumbnail for TCP M662
 - [ ] P2-05: Persist speed parameter in printerCtl_cmd
@@ -32,3 +32,4 @@ Branch: feature/emulator-gap-closures
 - [x] P1-06: Fixed M105 temperature response format in TcpServer.ts to match production API: removed decimal places from temperatures using toFixed(0), added @:0 field (nozzle heater PWM), added B@:0 field (bed heater PWM)
 - [x] P1-07: Fixed MAC address format in HttpServer.ts line 468 to preserve colons, matching production printer format "88:A9:A7:9D:2A:70"
 - [x] P2-01: Added G91 relative positioning command handler in TcpServer.ts, sets positioningMode to 'relative' and returns ok response, matching production printer behavior
+- [x] P2-02: Fixed indepMatlInfo structure in HttpServer.ts to match production API by removing currentLoadSlot and currentSlot fields, now only contains materialColor, materialName, stateAction, and stateStep as defined in ff-5mp-api-ts
