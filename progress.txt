@@ -272,6 +272,14 @@
   - Emits 'file-deleted' event with fileName
   - Returns success response or error (InvalidParameter/NotFound)
   - File: electron/main/services/HttpServer.ts (lines 242-243, 740-762)
+- [x] PH13-03: Extend PrinterFile type
+  - Added GcodeToolData interface with toolIndex, filamentType, filamentColor, filamentLen, filamentWeight
+  - Extended PrinterFile with: gcodeToolCnt, gcodeToolDatas, useMatlStation, totalFilamentWeight, thumbnail
+  - Removed duplicate GcodeToolData interface from HttpServer.ts (now using shared type)
+  - Updated /uploadGcode to parse materialMappings into GcodeToolData array
+  - Calculate totalFilamentWeight from gcodeToolDatas
+  - Updated FileManager.tsx test file creation to include new properties
+  - File: shared/types/printer.ts (lines 188-228), HttpServer.ts (lines 16, 688-706), FileManager.tsx (lines 37-82)
 
 [... remaining phases not started ...]
 

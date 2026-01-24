@@ -13,7 +13,7 @@ import type { Request, RequestHandler, Response } from 'express';
 import express from 'express';
 import type { FileFilterCallback } from 'multer';
 import multer from 'multer';
-import type { PrinterFile, PrinterModel } from '../../../shared/types/printer';
+import type { GcodeToolData, PrinterFile, PrinterModel } from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
 
 /**
@@ -40,18 +40,6 @@ interface GcodeFileEntry {
   totalFilamentWeight?: number;
   /** Whether the file uses material station */
   useMatlStation?: boolean;
-}
-
-/**
- * Tool data for G-code file entry
- */
-interface GcodeToolData {
-  /** Tool ID (0-based) */
-  toolId: number;
-  /** Material name */
-  materialName?: string;
-  /** Material color hex code */
-  materialColor?: string;
 }
 
 /**
@@ -692,12 +680,38 @@ export class HttpServer extends EventEmitter {
     // Create printer file entry
     const printTime = estimatePrintTime(fileSize);
     const is3mf = fileName.toLowerCase().endsWith('.3mf');
+
+    // Build gcodeToolDatas from materialMappings if available
+    const gcodeToolDatas: GcodeToolData[] = [];
+    if (materialMappings.length > 0) {
+      materialMappings.forEach((mapping: unknown, index: number) => {
+        if (typeof mapping === 'object' && mapping !== null) {
+          const m = mapping as Record<string, unknown>;
+          gcodeToolDatas.push({
+            toolIndex: index,
+            filamentType: (m['filamentType'] as string) ?? 'PLA',
+            filamentColor: (m['filamentColor'] as string) ?? '#000000',
+            filamentLen: (m['filamentLen'] as number) ?? 0,
+            filamentWeight: (m['filamentWeight'] as number) ?? 0,
+          });
+        }
+      });
+    }
+
+    // Calculate total filament weight from tool data
+    const totalFilamentWeight = gcodeToolDatas.reduce((sum, tool) => sum + tool.filamentWeight, 0);
+
     const printerFile: PrinterFile = {
       name: fileName,
       path: `/data/${fileName}`,
       size: fileSize,
       printTime,
       is3mf,
+      gcodeToolCnt: gcodeToolCnt ?? gcodeToolDatas.length ?? 1,
+      gcodeToolDatas,
+      useMatlStation: useMatlStation ?? false,
+      totalFilamentWeight,
+      thumbnail: '', // Will be populated in PH13-04 from G-code comments
     };
 
     // Add file to state
