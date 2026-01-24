@@ -90,4 +90,9 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T19:36:45-05:00 | 2026-01-23T19:36:51-05:00 | PH10-03: Fix M114 format (use A/B instead of E) | ~1 minute |
 | 2026-01-23T19:36:51-05:00 | 2026-01-23T19:36:51-05:00 | PH10-04: Fix M105 format (add T1) | ~0 minutes (done with PH10-03) |
 
+### 2026-01-23 - Phase 11 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T19:37:56-05:00 | 2026-01-23T19:40:13-05:00 | PH11-01 through PH11-03: TCP Sensor Commands (M405/M406/M240) | ~2 minutes |
+
 ---
