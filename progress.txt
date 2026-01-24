@@ -264,6 +264,14 @@
   - Removed the .replace() that strips extension from filename
   - Now preserves full filename with .gcode extension
   - File: src/components/FileManager.tsx (line 42)
+- [x] PH13-02: Add /deleteGcode endpoint
+  - Added POST /deleteGcode endpoint to HttpServer
+  - Accepts { fileName } body parameter
+  - Validates fileName exists in state before deleting
+  - Calls printerStateStore.removeFile(fileName) to remove from state.files
+  - Emits 'file-deleted' event with fileName
+  - Returns success response or error (InvalidParameter/NotFound)
+  - File: electron/main/services/HttpServer.ts (lines 242-243, 740-762)
 
 [... remaining phases not started ...]
 

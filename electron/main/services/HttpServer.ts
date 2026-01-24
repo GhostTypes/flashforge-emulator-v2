@@ -239,6 +239,9 @@ export class HttpServer extends EventEmitter {
     // POST /uploadGcode - Upload and optionally print (uses multer for file handling)
     this.#app.post('/uploadGcode', upload.single('gcodeFile'), this.#handleUploadGcode.bind(this));
 
+    // POST /deleteGcode - Delete a G-code file
+    this.#app.post('/deleteGcode', this.#handleDeleteGcode.bind(this));
+
     // Error handler
     this.#app.use(
       (
@@ -731,6 +734,30 @@ export class HttpServer extends EventEmitter {
       this.emit('print-started', { fileName, ad5xParams });
     }
 
+    res.json(this.#success());
+  });
+
+  /**
+   * POST /deleteGcode - Delete a G-code file
+   */
+  #handleDeleteGcode = this.#withAuth((req: Request, res: Response): void => {
+    const body = req.body as AuthenticatedRequest;
+    const fileName = body.fileName;
+
+    if (!fileName) {
+      res.json(this.#error(ResponseCode.InvalidParameter, 'Invalid parameter'));
+      return;
+    }
+
+    const file = printerStateStore.getFile(fileName);
+    if (!file) {
+      res.json(this.#error(ResponseCode.NotFound, 'Not found'));
+      return;
+    }
+
+    // Remove file from state
+    printerStateStore.removeFile(fileName);
+    this.emit('file-deleted', { fileName });
     res.json(this.#success());
   });
 
