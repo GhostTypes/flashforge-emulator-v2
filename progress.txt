@@ -157,6 +157,13 @@
   - Send temperature updates while waiting
   - Return 'ok' when within 2 degrees of target
   - File: electron/main/services/TcpServer.ts (lines ~386-389, ~631-665)
+- [x] PH8-02: Implement M190 (set bed temp and wait)
+  - Added #handleM190 method with async temperature polling
+  - Parse temperature from M190 S{temp} command format
+  - Send 'wait' acknowledgment, then poll every 500ms
+  - Send temperature updates while waiting
+  - Return 'ok' when within 2 degrees of target
+  - File: electron/main/services/TcpServer.ts (lines ~396-400, ~690-727)
 
 [... remaining phases not started ...]
 

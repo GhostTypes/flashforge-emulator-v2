@@ -393,6 +393,12 @@ export class TcpServer extends EventEmitter {
       return this.#handleM140(command);
     }
 
+    if (normalizedCommand.startsWith('M190 ')) {
+      // M190 is async - we handle it differently
+      this.#handleM190(client, command);
+      return null;
+    }
+
     if (normalizedCommand.startsWith('M146 ')) {
       return this.#handleM146(command);
     }
@@ -679,6 +685,45 @@ export class TcpServer extends EventEmitter {
     const temp = Number.parseInt(match[1], 10);
     printerStateStore.setTargetTemperatures(printerStateStore.state.temperature.nozzleTarget, temp);
     return new ResponseBuilder().cmdReceived('M140').build();
+  }
+
+  /**
+   * M190 - Set bed temperature and wait
+   * Sets the target bed temperature and waits until it's reached before returning ok
+   */
+  #handleM190(client: TcpClient, command: string): void {
+    const match = command.match(/M190\s+S(\d+)/);
+    if (!match?.[1]) {
+      client.socket.write(ResponseBuilder.error('Invalid M190 command'), 'utf-8');
+      return;
+    }
+
+    const targetTemp = Number.parseInt(match[1], 10);
+    printerStateStore.setTargetTemperatures(
+      printerStateStore.state.temperature.nozzleTarget,
+      targetTemp
+    );
+
+    // Send initial acknowledgment
+    client.socket.write(new ResponseBuilder().cmdReceived('M190').addLine('wait').build(), 'utf-8');
+
+    // Poll until temperature reaches target (within 2 degrees)
+    const checkInterval = setInterval(() => {
+      const temp = printerStateStore.state.temperature;
+      const diff = Math.abs(temp.bedCurrent - targetTemp);
+
+      // Send temperature updates while waiting
+      client.socket.write(
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`,
+        'utf-8'
+      );
+
+      if (diff <= 2) {
+        // Temperature reached - send final ok
+        clearInterval(checkInterval);
+        client.socket.write('ok\n', 'utf-8');
+      }
+    }, 500); // Check every 500ms
   }
 
   /**
