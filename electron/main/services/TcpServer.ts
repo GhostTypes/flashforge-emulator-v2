@@ -351,11 +351,15 @@ export class TcpServer extends EventEmitter {
     }
 
     if (normalizedCommand === 'M661') {
-      return this.#handleM661();
+      // M661 is async - we handle it differently
+      this.#handleM661(client);
+      return null;
     }
 
     if (normalizedCommand.startsWith('M662 ')) {
-      return this.#handleM662(command);
+      // M662 is async - we handle it differently
+      this.#handleM662(client, command);
+      return null;
     }
 
     // Control commands
@@ -479,7 +483,7 @@ export class TcpServer extends EventEmitter {
     return new ResponseBuilder()
       .cmdReceived('M105')
       .addLine(
-        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}`
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} T1:${temp.leftNozzleCurrent.toFixed(1)}/${temp.leftNozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}`
       )
       .build();
   }
@@ -522,6 +526,7 @@ export class TcpServer extends EventEmitter {
 
   /**
    * M114 - Get current position
+   * Uses A: and B: for dual extruders (matches FlashForge protocol)
    */
   #handleM114(): string {
     const pos = printerStateStore.state.position;
@@ -529,7 +534,7 @@ export class TcpServer extends EventEmitter {
     return new ResponseBuilder()
       .cmdReceived('M114')
       .addLine(
-        `X:${pos.x.toFixed(3)} Y:${pos.y.toFixed(3)} Z:${pos.z.toFixed(3)} E:${pos.e.toFixed(3)}`
+        `X:${pos.x.toFixed(3)} Y:${pos.y.toFixed(3)} Z:${pos.z.toFixed(3)} A:${pos.e.toFixed(3)} B:0.000`
       )
       .build();
   }
@@ -550,22 +555,31 @@ export class TcpServer extends EventEmitter {
 
   /**
    * M661 - Get local file list
+   * Sends ok immediately, then file list after delay (matches real printer behavior)
    */
-  #handleM661(): string {
+  #handleM661(client: TcpClient): void {
     const files = printerStateStore.getFiles();
     const fileNames = files.map((f) => `/data/${f.name}`).join('::');
 
-    return new ResponseBuilder().cmdReceived('M661').build() + fileNames;
+    // Send ok immediately
+    client.socket.write(new ResponseBuilder().cmdReceived('M661').build(), 'utf-8');
+
+    // Send file list after 500ms delay
+    setTimeout(() => {
+      client.socket.write(fileNames, 'utf-8');
+    }, 500);
   }
 
   /**
    * M662 - Get file thumbnail
+   * Sends ok immediately, then binary PNG data after delay
    */
-  #handleM662(command: string): string {
+  #handleM662(client: TcpClient, command: string): void {
     // Extract file path from command
     const match = command.match(/M662\s+(.+)/);
     if (!match?.[1]) {
-      return ResponseBuilder.error('Invalid M662 command');
+      client.socket.write(ResponseBuilder.error('Invalid M662 command'), 'utf-8');
+      return;
     }
 
     const filePath = match[1].trim();
@@ -573,11 +587,21 @@ export class TcpServer extends EventEmitter {
     const file = printerStateStore.getFile(fileName);
 
     if (!file) {
-      return ResponseBuilder.error('File not found');
+      client.socket.write(ResponseBuilder.error('File not found'), 'utf-8');
+      return;
     }
 
-    // Return empty PNG for now (should be replaced with actual thumbnail)
-    return new ResponseBuilder().cmdReceived('M662').build();
+    // Send ok immediately
+    client.socket.write(new ResponseBuilder().cmdReceived('M662').build(), 'utf-8');
+
+    // Send binary PNG data after delay
+    setTimeout(() => {
+      // Placeholder 1x1 transparent PNG (base64 decoded)
+      const pngBase64 =
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const pngBuffer = Buffer.from(pngBase64, 'base64');
+      client.socket.write(pngBuffer);
+    }, 500);
   }
 
   /**
