@@ -219,6 +219,23 @@
   - Uses state.temperature.leftNozzleCurrent and leftNozzleTarget
   - File: electron/main/services/TcpServer.ts (lines ~480-489)
 
+### Phase 11: TCP Sensor Commands (M405/M406/M240)
+- [x] PH11-01: Implement M405 (enable runout sensor)
+  - Added runoutSensorEnabled property to PrinterState interface
+  - Initialize to false in PrinterStateStore.createDefaultState
+  - Added #setRunoutSensorEnabled method to PrinterStateStore
+  - Added #handleM405 method to TcpServer
+  - Sets sensor enabled flag to true
+  - File: shared/types/printer.ts (line ~288-289), PrinterStateStore.ts (lines ~143, ~538-544), TcpServer.ts (lines ~424-426, ~898-905)
+- [x] PH11-02: Implement M406 (disable runout sensor)
+  - Added #handleM406 method to TcpServer
+  - Sets sensor enabled flag to false
+  - File: electron/main/services/TcpServer.ts (lines ~428-430, ~907-914)
+- [x] PH11-03: Implement M240 (take picture)
+  - Added #handleM240 method to TcpServer
+  - Returns ok without actual camera functionality (emulator limitation)
+  - File: electron/main/services/TcpServer.ts (lines ~432-434, ~916-923)
+
 [... remaining phases not started ...]
 
 ## Notes

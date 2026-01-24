@@ -285,6 +285,8 @@ export interface PrinterState {
   zAxisCompensation: number;
   /** Remaining disk space in MB */
   remainingDiskSpace: number;
+  /** Whether filament runout sensor is enabled (5M Pro only) */
+  runoutSensorEnabled: boolean;
 }
 
 /**

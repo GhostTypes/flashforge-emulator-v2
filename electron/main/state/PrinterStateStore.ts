@@ -140,6 +140,7 @@ function createDefaultState(model: PrinterModel): PrinterState {
     tvoc: 0,
     zAxisCompensation: 0,
     remainingDiskSpace: 1024,
+    runoutSensorEnabled: false,
   };
 }
 
@@ -531,6 +532,14 @@ export class PrinterStateStore extends EventEmitter {
    */
   setTcpControlActive(active: boolean): void {
     this.#state.tcpControlActive = active;
+    this.emit('state-changed', this.#state);
+  }
+
+  /**
+   * Sets runout sensor enabled state (5M Pro only)
+   */
+  setRunoutSensorEnabled(enabled: boolean): void {
+    this.#state.runoutSensorEnabled = enabled;
     this.emit('state-changed', this.#state);
   }
 
