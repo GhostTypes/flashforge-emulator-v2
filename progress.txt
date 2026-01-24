@@ -3,7 +3,7 @@
 Final Gap Closure Sprint - Started 2026-01-23
 Branch: feature/emulator-gap-closures
 
-## Incomplete Tasks (8 total)
+## Incomplete Tasks (7 total)
 
 ### Priority 1 (Critical)
 - [x] P1-01: Fix field name: coolingLeftFanSpeed → coolingFanLeftSpeed
@@ -17,7 +17,7 @@ Branch: feature/emulator-gap-closures
 ### Priority 2 (High)
 - [x] P2-01: Add G91 relative positioning command
 - [x] P2-02: Fix indepMatlInfo structure
-- [ ] P2-03: Add measure field to /detail response
+- [x] P2-03: Add measure field to /detail response
 - [ ] P2-04: Use extracted thumbnail for TCP M662
 - [ ] P2-05: Persist speed parameter in printerCtl_cmd
 - [ ] P2-06: Add heating state transition on temperature changes
@@ -33,3 +33,4 @@ Branch: feature/emulator-gap-closures
 - [x] P1-07: Fixed MAC address format in HttpServer.ts line 468 to preserve colons, matching production printer format "88:A9:A7:9D:2A:70"
 - [x] P2-01: Added G91 relative positioning command handler in TcpServer.ts, sets positioningMode to 'relative' and returns ok response, matching production printer behavior
 - [x] P2-02: Fixed indepMatlInfo structure in HttpServer.ts to match production API by removing currentLoadSlot and currentSlot fields, now only contains materialColor, materialName, stateAction, and stateStep as defined in ff-5mp-api-ts
+- [x] P2-03: Added measure field to /detail response in HttpServer.ts with format buildVolume.x X buildVolume.y X buildVolume.z (e.g., "220X220X220"), matching production printer API
