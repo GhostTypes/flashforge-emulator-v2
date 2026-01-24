@@ -8,7 +8,10 @@
       "Skill(best-practices)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Skill(agent-factory)"
+      "Skill(agent-factory)",
+      "Skill(ff-5mp-api-ts)",
+      "Skill(flashforge-ui-reference)",
+      "Skill(flashforge-api-docs)"
     ]
   }
 }

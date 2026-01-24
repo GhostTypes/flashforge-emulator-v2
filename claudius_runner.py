@@ -2,7 +2,7 @@
 """
 Claudius Runner - Ralph Wiggum Loop for Claude Code
 
-FlashForge Emulator V2 - Customized for gap closure work.
+FlashForge Emulator V2 - Final Gap Closure Sprint
 
 Usage:
     python claudius_runner.py <max_loops>
@@ -28,75 +28,19 @@ ROLE:
 You are an autonomous coding agent. You have NO memory of previous runs.
 Your memory is entirely contained in the files above.
 
-PROJECT: FlashForge Emulator V2
-Tech Stack: Electron + React 19 + TypeScript + Biome
-Goal: Close all gaps between emulator and real printer behavior
-
 FILES TO USE:
 - PRD.md: Contains the Product Requirements. READ THIS FIRST.
 - progress.txt: Contains the log of completed tasks. READ THIS NEXT to see what has been done.
-- TIMELOG.md: Time tracking for all completed tasks
+- TIMELOG.md: Time tracking for all completed tasks (preserve this file!)
 
-CRITICAL WORKFLOW:
+INSTRUCTIONS:
 1. Read PRD.md to understand the goal, constraints, and pass conditions.
 2. Read progress.txt to identify what has been completed.
-3. Read TIMELOG.md to get the last timestamp (if available).
-4. Find the NEXT incomplete task from the PRD (STRICT PHASE ORDER - complete all tasks in Phase N before Phase N+1).
-5. Execute ONLY that SINGLE task (write code, fix bugs, etc.).
-6. Run verification commands (npm run type-check, npm run lint, npm run build).
-7. Update progress.txt by appending what you completed.
-8. Update TIMELOG.md with time tracking entry.
-9. Commit TIMELOG.md separately: git add TIMELOG.md && git commit -m "chore: update timelog" && git push
-10. Commit your work: git add . && git commit -m "[descriptive message]" && git push
-
-VERIFICATION COMMANDS (Must ALL pass before committing):
-npm run type-check
-npm run lint
-npm run check
-npm run build
-
-IF ANY COMMAND FAILS:
-- Fix the issues
-- Do NOT push with errors
-- No band-aid fixes - implement properly
-
-CODE QUALITY STANDARDS:
-- TypeScript strict mode (no `any` types)
-- JSDoc comments on public APIs
-- Follow existing code style (Biome)
-- Use readonly for immutable data
-- Prefer discriminated unions for state
-
-AVAILABLE SKILLS (Read when needed - use progressive disclosure):
-
-Best Practices & Code Quality:
-- .claude/skills/best-practices/SKILL.md - SOLID, DRY, KISS, YAGNI principles
-- .claude/skills/typescript-best-practices/SKILL.md - Type safety, discriminated unions, type guards
-- .claude/skills/biome/SKILL.md - Linting, formatting, Biome configuration
-
-Project References (CRITICAL for this work):
-- .claude/skills/ff-5mp-api-ts/SKILL.md - Production FlashForge 5MP API client (TypeScript)
-- .claude/skills/flashforge-api-docs/SKILL.md - Raw TCP/HTTP/UDP protocol documentation
-- .claude/skills/flashforge-ui-reference/SKILL.md - What FlashForgeUI expects from printers
-
-Time Tracking:
-- .claude/skills/get-time/SKILL.md - Get current timestamp for TIMELOG.md entries
-
-Electron & Build Tools:
-- .claude/skills/electron/SKILL.md - Electron APIs, main/renderer process
-- .claude/skills/electron-vite/SKILL.md - Electron + Vite build configuration
-- .claude/skills/electron-builder/SKILL.md - Electron app packaging and distribution
-- .claude/skills/electron-store/SKILL.md - Data persistence in Electron apps
-
-React & Frontend:
-- .claude/skills/react-19/SKILL.md - React 19 features, hooks, Server Components
-- .claude/skills/modern-frontend-design/SKILL.md - High-quality frontend interfaces
-- .claude/skills/tailwind-css/SKILL.md - Tailwind CSS v3/v4 utilities and styling
-- .claude/skills/lucide-react/SKILL.md - Icon components
-
-Utilities:
-- .claude/skills/skill-factory/SKILL.md - Create skills from codebases
-- .claude/skills/agent-factory/SKILL.md - Create agents for codebases
+3. Find the NEXT incomplete task from the PRD.
+4. Execute ONLY that SINGLE task (write code, fix bugs, etc.).
+5. Run any verification commands specified in the PRD (tests, lint, typecheck).
+6. Update progress.txt by appending what you completed.
+7. Run: git add ., git commit -m "descriptive message", and git push.
 
 CRITICAL OUTPUT SIGNALS:
 After completing the task and pushing code, you MUST output one of these signals:
@@ -108,38 +52,35 @@ After completing the task and pushing code, you MUST output one of these signals
   Output exactly: <workflow_complete>
 
 RULES:
-- Do NOT output signals unless you have successfully pushed code and updated progress.txt and TIMELOG.md.
+- Do NOT output signals unless you have successfully pushed code and updated progress.txt.
 - Do ONLY ONE TASK per iteration. Stop after outputting the signal.
 - Do NOT include "Co-Authored-By" lines in commit messages.
 - Follow all constraints and boundaries specified in the PRD.
-- Complete tasks in STRICT PHASE ORDER.
-- Use get-time skill BEFORE and AFTER each task for time tracking.
+
+IMPORTANT: This is the FINAL gap closure sprint. You MUST match the production API (ff-5mp-api-ts) EXACTLY.
+- Reference: C:\\Users\\Cope\\Documents\\GitHub\\ff-5mp-api-ts\\
+- Key files: src/models/ff-models.ts, src/models/MachineInfo.ts, src/api/controls/
+- Match field names, types, and structure EXACTLY as they appear in production
 """
 
 # Base command for Claude Code
 # Uses --dangerously-skip-permissions for fully autonomous operation
 # Uses --no-session-persistence for clean sessions
-# Optional: --agents for passing sub-agents as JSON
 
 
-def build_claude_command(agents_json=None):
-    """Build the Claude CLI command with optional agents."""
+def build_claude_command():
+    """Build the Claude CLI command."""
     cmd = [
         "claude",
         "-p", SYSTEM_PROMPT,
         "--dangerously-skip-permissions",
-        "--no-session-persistence"
+        "--no-session-persistence",
+        "--max-turns", "50"
     ]
-
-    # Add agents if provided
-    if agents_json:
-        cmd.extend(["--agents", agents_json])
-
     return cmd
 
 
-
-def run_claudius_loop(max_loops, agents_json=None):
+def run_claudius_loop(max_loops):
     """Main loop that runs Claude iterations until complete or max reached."""
 
     # Pre-flight check
@@ -159,10 +100,7 @@ def run_claudius_loop(max_loops, agents_json=None):
             f.write("# FlashForge Emulator - Time Log\n\n")
 
     # Build the command once
-    claude_command = build_claude_command(agents_json)
-
-    if agents_json:
-        print(f"[Claudius] Sub-agents loaded from --agents flag")
+    claude_command = build_claude_command()
 
     loop_count = 0
 
@@ -278,18 +216,12 @@ def kill_process(process):
 def main():
     parser = argparse.ArgumentParser(
         description="Run Claude Code in a Claudius (Ralph Wiggum) loop.",
-        epilog="Example: python claudius_runner.py 150"
+        epilog="Example: python claudius_runner.py 40"
     )
     parser.add_argument(
         "max_loops",
         type=int,
         help="Maximum number of iterations allowed."
-    )
-    parser.add_argument(
-        "--agents",
-        type=str,
-        default=None,
-        help="JSON string of sub-agents to pass to Claude (optional)."
     )
     args = parser.parse_args()
 
@@ -297,20 +229,14 @@ def main():
         print("[Error] max_loops must be at least 1")
         sys.exit(1)
 
-    # Load agents from file if not provided via arg
-    agents_json = args.agents
-    if not agents_json and os.path.exists("agents.json"):
-        with open("agents.json", "r") as f:
-            agents_json = f.read()
-            print(f"[Claudius] Loaded agents from agents.json")
-
     print(f"[Claudius] Starting autonomous loop (max {args.max_loops} iterations)")
     print(f"[Claudius] Working directory: {os.getcwd()}")
     print(f"[Claudius] PRD file: PRD.md")
     print(f"[Claudius] Progress file: progress.txt")
     print(f"[Claudius] Time log: TIMELOG.md")
+    print(f"[Claudius] Max turns per iteration: 50")
 
-    run_claudius_loop(args.max_loops, agents_json)
+    run_claudius_loop(args.max_loops)
 
 
 if __name__ == "__main__":
