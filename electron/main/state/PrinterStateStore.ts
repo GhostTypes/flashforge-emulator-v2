@@ -69,7 +69,7 @@ function createDefaultState(model: PrinterModel): PrinterState {
     protocolMode: profile.protocolMode,
     machineStatus: 'idle',
     temperature: { ...DEFAULT_TEMPERATURE },
-    position: { x: 0, y: 0, z: 0, e: 0 },
+    position: { x: 0, y: 0, z: 0, e: 0, positioningMode: 'absolute' },
     printJob: {
       status: 'idle',
       currentFile: null,
@@ -352,12 +352,28 @@ export class PrinterStateStore extends EventEmitter {
    * Homes all axes (resets position to zero)
    */
   homeAxes(axes?: 'x' | 'y' | 'z' | 'all'): void {
+    const currentMode = this.#state.position.positioningMode;
     if (!axes || axes === 'all') {
-      this.#state.position = { x: 0, y: 0, z: 0, e: this.#state.position.e };
+      this.#state.position = {
+        x: 0,
+        y: 0,
+        z: 0,
+        e: this.#state.position.e,
+        positioningMode: currentMode,
+      };
     } else {
       this.#state.position[axes] = 0;
     }
     this.#state.endstops = { xMax: 1, yMax: 1, zMin: 1 };
+    this.emit('position-changed', this.#state.position);
+    this.emit('state-changed', this.#state);
+  }
+
+  /**
+   * Sets the positioning mode (absolute or relative)
+   */
+  setPositioningMode(mode: 'absolute' | 'relative'): void {
+    this.#state.position.positioningMode = mode;
     this.emit('position-changed', this.#state.position);
     this.emit('state-changed', this.#state);
   }

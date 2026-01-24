@@ -172,6 +172,17 @@
   - Return 'ok' when bed temp drops below target
   - File: electron/main/services/TcpServer.ts (lines ~402-406, ~735-767)
 
+### Phase 9: TCP Movement Commands (G90/G1)
+- [x] PH9-01: Implement G90 (absolute positioning)
+  - Added PositioningMode type ('absolute' | 'relative') to shared/types/printer.ts
+  - Added positioningMode property to PositionState interface
+  - Initialize to 'absolute' in PrinterStateStore.createDefaultState
+  - Added #setPositioningMode method to PrinterStateStore
+  - Updated homeAxes to preserve positioningMode when resetting position
+  - Added #handleG90 method to TcpServer
+  - Sets positioning mode to 'absolute' and returns 'ok'
+  - File: shared/types/printer.ts (lines ~64-83), PrinterStateStore.ts (lines ~355-373), TcpServer.ts (lines ~366-368, ~587-594)
+
 [... remaining phases not started ...]
 
 ## Notes

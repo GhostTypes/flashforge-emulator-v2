@@ -363,6 +363,10 @@ export class TcpServer extends EventEmitter {
       return this.#handleG28();
     }
 
+    if (normalizedCommand === 'G90') {
+      return this.#handleG90();
+    }
+
     if (normalizedCommand.startsWith('M23 ')) {
       return this.#handleM23(command);
     }
@@ -578,6 +582,15 @@ export class TcpServer extends EventEmitter {
   #handleG28(): string {
     printerStateStore.homeAxes('all');
     return new ResponseBuilder().cmdReceived('G28').build();
+  }
+
+  /**
+   * G90 - Set absolute positioning
+   * Sets the positioning mode to absolute (coordinates are from origin)
+   */
+  #handleG90(): string {
+    printerStateStore.setPositioningMode('absolute');
+    return new ResponseBuilder().cmdReceived('G90').build();
   }
 
   /**
