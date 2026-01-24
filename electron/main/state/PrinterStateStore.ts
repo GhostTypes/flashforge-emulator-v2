@@ -440,6 +440,8 @@ export class PrinterStateStore extends EventEmitter {
     // Cool down
     this.#state.temperature.nozzleTarget = 0;
     this.#state.temperature.bedTarget = 0;
+    // Reset fan speed
+    this.#state.fan.coolingFanSpeed = 0;
     this.emit('job-changed', this.#state.printJob);
     this.emit('state-changed', this.#state);
   }
@@ -461,6 +463,8 @@ export class PrinterStateStore extends EventEmitter {
     if (job.status === 'heating' && tempsReady) {
       job.status = 'printing';
       this.#state.machineStatus = 'busy';
+      // Auto fan ramp-up when printing starts
+      this.#state.fan.coolingFanSpeed = 100;
     }
 
     if (job.status === 'printing') {
@@ -497,6 +501,8 @@ export class PrinterStateStore extends EventEmitter {
         // Cool down
         this.#state.temperature.nozzleTarget = 0;
         this.#state.temperature.bedTarget = 0;
+        // Reset fan speed
+        this.#state.fan.coolingFanSpeed = 0;
 
         // Increment cumulative stats
         this.#state.cumulativePrintTime += job.elapsedTime;
