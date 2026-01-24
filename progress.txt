@@ -259,6 +259,12 @@
   - Emits state-changed events for both transitions
   - File: electron/main/state/PrinterStateStore.ts (lines ~406-422)
 
+### Phase 13: File Operations
+- [x] PH13-01: Fix FileManager file extension
+  - Removed the .replace() that strips extension from filename
+  - Now preserves full filename with .gcode extension
+  - File: src/components/FileManager.tsx (line 42)
+
 [... remaining phases not started ...]
 
 ## Notes
