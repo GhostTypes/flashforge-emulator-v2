@@ -68,4 +68,9 @@ Tracking time spent on gap closure tasks.
 |-------|-----|------|----------|
 | 2026-01-23T19:20:23-05:00 | 2026-01-23T19:21:48-05:00 | PH7-01 through PH7-05: Print speed and misc properties | ~1 minute |
 
+### 2026-01-23 - Phase 8 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T19:23:25-05:00 | 2026-01-23T19:24:28-05:00 | PH8-01: Implement M109 (set nozzle temp and wait) | ~1 minute |
+
 ---
