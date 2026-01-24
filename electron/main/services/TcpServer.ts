@@ -615,8 +615,9 @@ export class TcpServer extends EventEmitter {
 
     // Send binary PNG data after delay
     setTimeout(() => {
-      // Placeholder 1x1 transparent PNG (base64 decoded)
+      // Use extracted thumbnail from file, or fallback to placeholder
       const pngBase64 =
+        file.thumbnail ||
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
       const pngBuffer = Buffer.from(pngBase64, 'base64');
       client.socket.write(pngBuffer);
