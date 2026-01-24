@@ -18,7 +18,7 @@ Branch: feature/emulator-gap-closures
 - [x] P2-01: Add G91 relative positioning command
 - [x] P2-02: Fix indepMatlInfo structure
 - [x] P2-03: Add measure field to /detail response
-- [ ] P2-04: Use extracted thumbnail for TCP M662
+- [x] P2-04: Use extracted thumbnail for TCP M662
 - [ ] P2-05: Persist speed parameter in printerCtl_cmd
 - [ ] P2-06: Add heating state transition on temperature changes
 - [ ] P2-07: Omit hasMatlStation for non-AD5X models
@@ -34,3 +34,4 @@ Branch: feature/emulator-gap-closures
 - [x] P2-01: Added G91 relative positioning command handler in TcpServer.ts, sets positioningMode to 'relative' and returns ok response, matching production printer behavior
 - [x] P2-02: Fixed indepMatlInfo structure in HttpServer.ts to match production API by removing currentLoadSlot and currentSlot fields, now only contains materialColor, materialName, stateAction, and stateStep as defined in ff-5mp-api-ts
 - [x] P2-03: Added measure field to /detail response in HttpServer.ts with format buildVolume.x X buildVolume.y X buildVolume.z (e.g., "220X220X220"), matching production printer API
+- [x] P2-04: Updated TCP M662 handler in TcpServer.ts to use file.thumbnail property instead of hardcoded PNG, with fallback to placeholder if thumbnail is empty
