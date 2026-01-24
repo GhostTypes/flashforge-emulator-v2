@@ -281,6 +281,7 @@ export class PrinterStateStore extends EventEmitter {
    */
   simulateTemperatures(): void {
     const temp = this.#state.temperature;
+    const profile = this.getProfile();
     let changed = false;
 
     // Nozzle heating/cooling
@@ -290,6 +291,17 @@ export class PrinterStateStore extends EventEmitter {
     } else if (temp.nozzleCurrent > temp.nozzleTarget) {
       temp.nozzleCurrent = Math.max(temp.nozzleTarget, temp.nozzleCurrent - 1);
       changed = true;
+    }
+
+    // Left nozzle heating/cooling (AD5X dual extrusion)
+    if (profile.hasMaterialStation) {
+      if (temp.leftNozzleCurrent < temp.leftNozzleTarget) {
+        temp.leftNozzleCurrent = Math.min(temp.leftNozzleTarget, temp.leftNozzleCurrent + 2);
+        changed = true;
+      } else if (temp.leftNozzleCurrent > temp.leftNozzleTarget) {
+        temp.leftNozzleCurrent = Math.max(temp.leftNozzleTarget, temp.leftNozzleCurrent - 1);
+        changed = true;
+      }
     }
 
     // Bed heating/cooling

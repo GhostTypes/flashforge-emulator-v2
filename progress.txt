@@ -99,6 +99,15 @@
   - Added leftNozzleCurrent and leftNozzleTarget to TemperatureState interface
   - Initialized both to 0 in DEFAULT_TEMPERATURE constant
   - File: shared/types/printer.ts (lines ~50-53), PrinterStateStore.ts (lines ~43-44)
+- [x] PH5-02: Initialize left extruder temps in StateStore
+  - Already complete via DEFAULT_TEMPERATURE constant used in createDefaultState
+  - Both properties initialized to 0 and spread into temperature state
+  - File: electron/main/state/PrinterStateStore.ts (lines ~43-44, ~71)
+- [x] PH5-03: Add left temp simulation for AD5X
+  - Added left nozzle heating/cooling simulation to simulateTemperatures method
+  - Only simulates when profile.hasMaterialStation is true (AD5X)
+  - Mirrors right nozzle behavior with +/- 2 degree heating/cooling
+  - File: electron/main/state/PrinterStateStore.ts (lines ~296-305)
 
 [... remaining phases not started ...]
 
