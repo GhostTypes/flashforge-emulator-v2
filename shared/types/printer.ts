@@ -132,10 +132,6 @@ export type MaterialSlotUpdate = {
  * Represents the currently loaded material in the active slot
  */
 export interface IndepMatlInfo {
-  /** Currently loading slot (0 if none) */
-  currentLoadSlot: number;
-  /** Currently active slot */
-  currentSlot: number;
   /** Material color as hex code */
   materialColor: string;
   /** Material name (e.g., "PLA", "PETG") */

@@ -519,8 +519,6 @@ export class HttpServer extends EventEmitter {
         (slot) => slot.slotId === state.materialStation.currentSlot
       );
       const indepMatlInfo: IndepMatlInfo = {
-        currentLoadSlot: state.materialStation.currentLoadSlot,
-        currentSlot: state.materialStation.currentSlot,
         materialColor: currentSlot?.materialColor || '',
         materialName: currentSlot?.materialName || 'PLA',
         stateAction: 0,
