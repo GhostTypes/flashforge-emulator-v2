@@ -103,4 +103,9 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T19:45:10-05:00 | 2026-01-23T19:46:11-05:00 | PH12-03: Auto fan ramp-up during print | ~1 minute |
 | 2026-01-23T19:46:11-05:00 | 2026-01-23T19:48:15-05:00 | PH12-04: Implement pausing state transition | ~2 minutes |
 
+### 2026-01-23 - Phase 13 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T19:49:14-05:00 | 2026-01-23T19:49:57-05:00 | PH13-01: Fix FileManager file extension | ~1 minute |
+
 ---
