@@ -133,6 +133,13 @@ function createDefaultState(model: PrinterModel): PrinterState {
     hasRightFilament: true,
     leftFilamentType: '',
     rightFilamentType: 'PLA',
+    currentPrintSpeed: 100,
+    printSpeedAdjust: 100,
+    fillAmount: 0,
+    errorCode: '',
+    tvoc: 0,
+    zAxisCompensation: 0,
+    remainingDiskSpace: 1024,
   };
 }
 
