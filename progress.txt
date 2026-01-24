@@ -149,6 +149,15 @@
   - Changed currentPrintSpeed, printSpeedAdjust, fillAmount, errorCode, remainingDiskSpace, tvoc, zAxisCompensation from hardcoded to state values
   - File: electron/main/services/HttpServer.ts (lines ~388, ~390, ~397, ~423, ~426, ~432-433)
 
+### Phase 8: TCP Wait Commands (M109/M190/M191)
+- [x] PH8-01: Implement M109 (set nozzle temp and wait)
+  - Added #handleM109 method with async temperature polling
+  - Parse temperature from M109 S{temp} command format
+  - Send 'wait' acknowledgment, then poll every 500ms
+  - Send temperature updates while waiting
+  - Return 'ok' when within 2 degrees of target
+  - File: electron/main/services/TcpServer.ts (lines ~386-389, ~631-665)
+
 [... remaining phases not started ...]
 
 ## Notes

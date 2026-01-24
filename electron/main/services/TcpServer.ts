@@ -383,6 +383,12 @@ export class TcpServer extends EventEmitter {
       return this.#handleM104(command);
     }
 
+    if (normalizedCommand.startsWith('M109 ')) {
+      // M109 is async - we handle it differently
+      this.#handleM109(client, command);
+      return null;
+    }
+
     if (normalizedCommand.startsWith('M140 ')) {
       return this.#handleM140(command);
     }
@@ -620,6 +626,45 @@ export class TcpServer extends EventEmitter {
     const temp = Number.parseInt(match[1], 10);
     printerStateStore.setTargetTemperatures(temp, printerStateStore.state.temperature.bedTarget);
     return new ResponseBuilder().cmdReceived('M104').build();
+  }
+
+  /**
+   * M109 - Set extruder temperature and wait
+   * Sets the target nozzle temperature and waits until it's reached before returning ok
+   */
+  #handleM109(client: TcpClient, command: string): void {
+    const match = command.match(/M109\s+S(\d+)/);
+    if (!match?.[1]) {
+      client.socket.write(ResponseBuilder.error('Invalid M109 command'), 'utf-8');
+      return;
+    }
+
+    const targetTemp = Number.parseInt(match[1], 10);
+    printerStateStore.setTargetTemperatures(
+      targetTemp,
+      printerStateStore.state.temperature.bedTarget
+    );
+
+    // Send initial acknowledgment
+    client.socket.write(new ResponseBuilder().cmdReceived('M109').addLine('wait').build(), 'utf-8');
+
+    // Poll until temperature reaches target (within 2 degrees)
+    const checkInterval = setInterval(() => {
+      const temp = printerStateStore.state.temperature;
+      const diff = Math.abs(temp.nozzleCurrent - targetTemp);
+
+      // Send temperature updates while waiting
+      client.socket.write(
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`,
+        'utf-8'
+      );
+
+      if (diff <= 2) {
+        // Temperature reached - send final ok
+        clearInterval(checkInterval);
+        client.socket.write('ok\n', 'utf-8');
+      }
+    }, 500); // Check every 500ms
   }
 
   /**
