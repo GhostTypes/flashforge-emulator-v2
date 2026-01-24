@@ -44,5 +44,6 @@ Tracking time spent on gap closure tasks.
 |-------|-----|------|----------|
 | 2026-01-23T19:06:30-05:00 | 2026-01-23T19:07:22-05:00 | PH4-01: Add filament estimate properties to types | ~1 minute |
 | 2026-01-23T19:08:21-05:00 | 2026-01-23T19:09:00-05:00 | PH4-03: Calculate filament estimates during print | ~1 minute |
+| 2026-01-23T19:10:01-05:00 | 2026-01-23T19:10:28-05:00 | PH4-04: Return filament estimates in /detail | ~1 minute |
 
 ---
