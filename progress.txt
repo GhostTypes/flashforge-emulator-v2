@@ -132,6 +132,23 @@
   - Changed from hardcoded values to state values
   - File: electron/main/services/HttpServer.ts (lines ~402, ~424-427)
 
+### Phase 7: State Management - Part 5 (Print Speed and Misc)
+- [x] PH7-01: Add print speed properties to types
+  - Added currentPrintSpeed, printSpeedAdjust to PrinterState
+  - File: shared/types/printer.ts (lines ~267-270)
+- [x] PH7-02: Initialize print speed in StateStore
+  - Initialize both to 100 (100% speed)
+  - File: electron/main/state/PrinterStateStore.ts (lines ~136-137)
+- [x] PH7-03: Add remaining /detail properties to types
+  - Added fillAmount, errorCode, tvoc, zAxisCompensation, remainingDiskSpace
+  - File: shared/types/printer.ts (lines ~271-280)
+- [x] PH7-04: Initialize remaining properties in StateStore
+  - Initialize: fillAmount=0, errorCode='', tvoc=0, zAxisCompensation=0, remainingDiskSpace=1024
+  - File: electron/main/state/PrinterStateStore.ts (lines ~138-142)
+- [x] PH7-05: Return all new properties in /detail
+  - Changed currentPrintSpeed, printSpeedAdjust, fillAmount, errorCode, remainingDiskSpace, tvoc, zAxisCompensation from hardcoded to state values
+  - File: electron/main/services/HttpServer.ts (lines ~388, ~390, ~397, ~423, ~426, ~432-433)
+
 [... remaining phases not started ...]
 
 ## Notes

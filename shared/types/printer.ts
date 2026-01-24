@@ -264,6 +264,20 @@ export interface PrinterState {
   leftFilamentType: string;
   /** Right filament material type (e.g., "PLA", "PETG") */
   rightFilamentType: string;
+  /** Current print speed percentage */
+  currentPrintSpeed: number;
+  /** Print speed adjustment percentage */
+  printSpeedAdjust: number;
+  /** Fill amount for infill (0-100) */
+  fillAmount: number;
+  /** Error code (empty string if no error) */
+  errorCode: string;
+  /** TVOC sensor reading */
+  tvoc: number;
+  /** Z-axis compensation value */
+  zAxisCompensation: number;
+  /** Remaining disk space in MB */
+  remainingDiskSpace: number;
 }
 
 /**
