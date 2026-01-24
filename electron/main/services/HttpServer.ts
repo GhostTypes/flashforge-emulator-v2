@@ -463,9 +463,6 @@ export class HttpServer extends EventEmitter {
       flashRegisterCode: '',
       internalFanStatus: state.fan.internalFanEnabled ? 'open' : 'close',
       ipAddr: state.ipAddress,
-      leftFilamentType: state.leftFilamentType,
-      leftTargetTemp: state.temperature.leftNozzleTarget,
-      leftTemp: state.temperature.leftNozzleCurrent,
       lightStatus: state.led.enabled ? 'open' : 'close',
       location: '',
       macAddr: state.macAddress.replace(/:/g, ''),
@@ -485,7 +482,6 @@ export class HttpServer extends EventEmitter {
       printLayer: state.printJob.currentLayer,
       printProgress: state.printJob.progress,
       printSpeedAdjust: state.printSpeedAdjust,
-      hasLeftFilament: state.hasLeftFilament,
       hasRightFilament: state.hasRightFilament,
       remainingDiskSpace: state.remainingDiskSpace,
       rightFilamentType: state.rightFilamentType,
@@ -500,6 +496,10 @@ export class HttpServer extends EventEmitter {
     // Add AD5X material station info if applicable
     if (profile.hasMaterialStation) {
       detail['hasMatlStation'] = true;
+      detail['hasLeftFilament'] = state.hasLeftFilament;
+      detail['leftFilamentType'] = state.leftFilamentType;
+      detail['leftTemp'] = state.temperature.leftNozzleCurrent;
+      detail['leftTargetTemp'] = state.temperature.leftNozzleTarget;
       detail['matlStationInfo'] = {
         currentLoadSlot: state.materialStation.currentLoadSlot,
         currentSlot: state.materialStation.currentSlot,
