@@ -429,6 +429,12 @@ export class PrinterStateStore extends EventEmitter {
       job.estimatedTimeRemaining = Math.max(0, job.totalPrintTime - job.elapsedTime);
       job.currentLayer = Math.floor(job.progress * job.totalLayers);
 
+      // Update filament estimates based on progress
+      // Crude estimate: 100g total, ~1000mm length per job (will be refined later)
+      const progressPercent = job.progress * 100;
+      this.#state.estimatedRightWeight = (progressPercent / 100) * 100; // 100g total
+      this.#state.estimatedRightLen = (progressPercent / 100) * 1000; // 1000mm total
+
       // Check if print is complete
       if (job.progress >= 1) {
         job.status = 'completed';
