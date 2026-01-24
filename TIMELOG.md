@@ -95,4 +95,9 @@ Tracking time spent on gap closure tasks.
 |-------|-----|------|----------|
 | 2026-01-23T19:37:56-05:00 | 2026-01-23T19:40:13-05:00 | PH11-01 through PH11-03: TCP Sensor Commands (M405/M406/M240) | ~2 minutes |
 
+### 2026-01-23 - Phase 12 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T19:41:00-05:00 | 2026-01-23T19:42:00-05:00 | PH12-01: Implement Z-axis updates during print | ~1 minute |
+
 ---
