@@ -367,6 +367,10 @@ export class TcpServer extends EventEmitter {
       return this.#handleG90();
     }
 
+    if (normalizedCommand.startsWith('G1 ')) {
+      return this.#handleG1(command);
+    }
+
     if (normalizedCommand.startsWith('M23 ')) {
       return this.#handleM23(command);
     }
@@ -591,6 +595,53 @@ export class TcpServer extends EventEmitter {
   #handleG90(): string {
     printerStateStore.setPositioningMode('absolute');
     return new ResponseBuilder().cmdReceived('G90').build();
+  }
+
+  /**
+   * G1 - Move to coordinates
+   * Parses X, Y, Z, E parameters and updates position state
+   * Supports both absolute (G90) and relative (G91) positioning modes
+   */
+  #handleG1(command: string): string {
+    const state = printerStateStore.state;
+    const isAbsolute = state.position.positioningMode === 'absolute';
+
+    const positionUpdate: { x?: number; y?: number; z?: number; e?: number } = {};
+
+    // Parse X coordinate
+    const xMatch = command.match(/X(-?\d+\.?\d*)/);
+    if (xMatch?.[1]) {
+      const value = Number.parseFloat(xMatch[1]);
+      positionUpdate.x = isAbsolute ? value : state.position.x + value;
+    }
+
+    // Parse Y coordinate
+    const yMatch = command.match(/Y(-?\d+\.?\d*)/);
+    if (yMatch?.[1]) {
+      const value = Number.parseFloat(yMatch[1]);
+      positionUpdate.y = isAbsolute ? value : state.position.y + value;
+    }
+
+    // Parse Z coordinate
+    const zMatch = command.match(/Z(-?\d+\.?\d*)/);
+    if (zMatch?.[1]) {
+      const value = Number.parseFloat(zMatch[1]);
+      positionUpdate.z = isAbsolute ? value : state.position.z + value;
+    }
+
+    // Parse E (extruder) coordinate
+    const eMatch = command.match(/E(-?\d+\.?\d*)/);
+    if (eMatch?.[1]) {
+      const value = Number.parseFloat(eMatch[1]);
+      positionUpdate.e = isAbsolute ? value : state.position.e + value;
+    }
+
+    // Update position if any parameters were found
+    if (Object.keys(positionUpdate).length > 0) {
+      printerStateStore.updatePosition(positionUpdate);
+    }
+
+    return new ResponseBuilder().cmdReceived('G1').build();
   }
 
   /**

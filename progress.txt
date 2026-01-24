@@ -182,6 +182,12 @@
   - Added #handleG90 method to TcpServer
   - Sets positioning mode to 'absolute' and returns 'ok'
   - File: shared/types/printer.ts (lines ~64-83), PrinterStateStore.ts (lines ~355-373), TcpServer.ts (lines ~366-368, ~587-594)
+- [x] PH9-02: Implement G1 (move to XYZ)
+  - Added #handleG1 method to TcpServer
+  - Parse X, Y, Z values from command using regex
+  - Supports both absolute (G90) and relative (G91) positioning modes
+  - Updates position state via printerStateStore.updatePosition
+  - File: electron/main/services/TcpServer.ts (lines ~370-372, ~600-645)
 
 [... remaining phases not started ...]
 
