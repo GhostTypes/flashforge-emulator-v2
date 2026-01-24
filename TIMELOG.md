@@ -101,5 +101,6 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T19:41:00-05:00 | 2026-01-23T19:42:00-05:00 | PH12-01: Implement Z-axis updates during print | ~1 minute |
 | 2026-01-23T19:43:01-05:00 | 2026-01-23T19:43:33-05:00 | PH12-02: Implement E-axis updates during print | ~1 minute |
 | 2026-01-23T19:45:10-05:00 | 2026-01-23T19:46:11-05:00 | PH12-03: Auto fan ramp-up during print | ~1 minute |
+| 2026-01-23T19:46:11-05:00 | 2026-01-23T19:48:15-05:00 | PH12-04: Implement pausing state transition | ~2 minutes |
 
 ---
