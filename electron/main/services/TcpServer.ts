@@ -495,7 +495,7 @@ export class TcpServer extends EventEmitter {
     return new ResponseBuilder()
       .cmdReceived('M105')
       .addLine(
-        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} T1:${temp.leftNozzleCurrent.toFixed(1)}/${temp.leftNozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}`
+        `T0:${temp.nozzleCurrent.toFixed(0)}/${temp.nozzleTarget.toFixed(0)} T1:${temp.leftNozzleCurrent.toFixed(0)}/${temp.leftNozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(0)}/${temp.bedTarget.toFixed(0)} @:0 B@:0`
       )
       .build();
   }
