@@ -54,4 +54,13 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T19:14:33-05:00 | 2026-01-23T19:14:33-05:00 | PH5-03: Add left temp simulation for AD5X | ~0 minutes |
 | 2026-01-23T19:15:00-05:00 | 2026-01-23T19:16:11-05:00 | PH5-04: Return left temps in /detail | ~1 minute |
 
+### 2026-01-23 - Phase 6 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T19:17:00-05:00 | 2026-01-23T19:17:00-05:00 | PH6-01: Add left cooling fan to FanState | ~0 minutes (already done) |
+| 2026-01-23T19:17:01-05:00 | 2026-01-23T19:17:01-05:00 | PH6-02: Initialize left fan in StateStore | ~0 minutes (already done) |
+| 2026-01-23T19:17:02-05:00 | 2026-01-23T19:17:45-05:00 | PH6-03: Add material detection properties to types | ~1 minute |
+| 2026-01-23T19:17:46-05:00 | 2026-01-23T19:18:15-05:00 | PH6-04: Initialize material detection in StateStore | ~1 minute |
+| 2026-01-23T19:18:16-05:00 | 2026-01-23T19:18:45-05:00 | PH6-05: Return material detection in /detail | ~1 minute |
+
 ---
