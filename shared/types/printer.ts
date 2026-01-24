@@ -47,6 +47,10 @@ export interface TemperatureState {
   nozzleCurrent: number;
   /** Target nozzle temperature in Celsius */
   nozzleTarget: number;
+  /** Current left nozzle temperature in Celsius (AD5X only) */
+  leftNozzleCurrent: number;
+  /** Target left nozzle temperature in Celsius (AD5X only) */
+  leftNozzleTarget: number;
   /** Current bed temperature in Celsius */
   bedCurrent: number;
   /** Target bed temperature in Celsius */

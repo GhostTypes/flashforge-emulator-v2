@@ -94,6 +94,12 @@
   - Replaced hardcoded 0 with state.estimatedLeftLen, state.estimatedLeftWeight, state.estimatedRightLen, state.estimatedRightWeight
   - File: electron/main/services/HttpServer.ts (lines ~391-394)
 
+### Phase 5: State Management - Part 3 (AD5X Left Extruder)
+- [x] PH5-01: Add left extruder temps to TemperatureState
+  - Added leftNozzleCurrent and leftNozzleTarget to TemperatureState interface
+  - Initialized both to 0 in DEFAULT_TEMPERATURE constant
+  - File: shared/types/printer.ts (lines ~50-53), PrinterStateStore.ts (lines ~43-44)
+
 [... remaining phases not started ...]
 
 ## Notes

@@ -40,6 +40,8 @@ export type StateChangeEvent =
 const DEFAULT_TEMPERATURE: TemperatureState = {
   nozzleCurrent: 25,
   nozzleTarget: 0,
+  leftNozzleCurrent: 0,
+  leftNozzleTarget: 0,
   bedCurrent: 25,
   bedTarget: 0,
   chamberCurrent: 25,
