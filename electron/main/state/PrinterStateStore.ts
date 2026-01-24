@@ -114,7 +114,7 @@ function createDefaultState(model: PrinterModel): PrinterState {
     tcpControlActive: false,
     serialNumber: DEFAULT_CONFIG.serialNumber,
     checkCode: DEFAULT_CONFIG.checkCode,
-    machineName: `${profile.name} Emulator`,
+    machineName: profile.hasMaterialStation ? 'AD5X' : `${profile.name} Emulator`,
     firmwareVersion: profile.defaultFirmware,
     macAddress: '00:11:22:33:44:55',
     ipAddress: '192.168.1.100',
