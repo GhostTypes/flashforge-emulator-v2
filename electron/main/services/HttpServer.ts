@@ -465,7 +465,7 @@ export class HttpServer extends EventEmitter {
       ipAddr: state.ipAddress,
       lightStatus: state.led.enabled ? 'open' : 'close',
       location: '',
-      macAddr: state.macAddress.replace(/:/g, ''),
+      macAddr: state.macAddress,
       name: state.machineName,
       nozzleCnt: state.nozzleCount,
       nozzleModel: state.nozzleModel,
