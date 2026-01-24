@@ -3,13 +3,13 @@
 Final Gap Closure Sprint - Started 2026-01-23
 Branch: feature/emulator-gap-closures
 
-## Incomplete Tasks (12 total)
+## Incomplete Tasks (11 total)
 
 ### Priority 1 (Critical)
 - [x] P1-01: Fix field name: coolingLeftFanSpeed → coolingFanLeftSpeed
 - [x] P1-02: Fix nozzleCount for AD5X (should be 2, not 1)
 - [x] P1-03: Fix machineName for AD5X detection
-- [ ] P1-04: Make left extruder fields AD5X-only
+- [x] P1-04: Make left extruder fields AD5X-only
 - [ ] P1-05: Populate gcodeListDetail with actual file metadata
 - [ ] P1-06: Fix M105 temperature response format
 - [ ] P1-07: Fix MAC address format (don't strip colons)
@@ -27,3 +27,4 @@ Branch: feature/emulator-gap-closures
 - [x] P1-01: Fixed field name in HttpServer.ts line 449 to match production API (coolingFanLeftSpeed)
 - [x] P1-02: Fixed nozzleCount in PrinterStateStore.ts line 121 to report 2 for AD5X, 1 for other models
 - [x] P1-03: Fixed machineName in PrinterStateStore.ts line 117 to return 'AD5X' for material station models, enabling proper detection by production API
+- [x] P1-04: Moved hasLeftFilament, leftFilamentType, leftTemp, leftTargetTemp into AD5X conditional block in HttpServer.ts, preventing these fields from being returned for single-extruder models
