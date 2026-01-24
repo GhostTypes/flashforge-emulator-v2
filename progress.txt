@@ -280,6 +280,14 @@
   - Calculate totalFilamentWeight from gcodeToolDatas
   - Updated FileManager.tsx test file creation to include new properties
   - File: shared/types/printer.ts (lines 188-228), HttpServer.ts (lines 16, 688-706), FileManager.tsx (lines 37-82)
+- [x] PH13-04: Extract thumbnails from uploaded G-code
+  - Added extractThumbnailFromGcode function to parse G-code content
+  - Parses for '; thumbnail begin' / '; thumbnail end' comment markers
+  - Extracts base64-encoded PNG data from comment lines
+  - Updated /uploadGcode to extract and store thumbnail with file (only for .gcode files)
+  - Updated /gcodeThumb to return extracted thumbnail instead of always using placeholder
+  - Falls back to placeholder PNG if no thumbnail found in G-code
+  - File: electron/main/services/HttpServer.ts (lines 140-200, 766-783, 643-664)
 
 [... remaining phases not started ...]
 
