@@ -240,6 +240,10 @@ export interface PrinterState {
   autoShutdown: 'open' | 'close';
   /** Auto shutdown time in minutes */
   autoShutdownTime: number;
+  /** Cumulative print time across all jobs in seconds */
+  cumulativePrintTime: number;
+  /** Cumulative filament used across all jobs in meters */
+  cumulativeFilament: number;
 }
 
 /**
