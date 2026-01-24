@@ -247,6 +247,11 @@
   - Formula: progress * 1000 (total extrusion in mm)
   - E position increases as print progresses, simulating filament extrusion
   - File: electron/main/state/PrinterStateStore.ts (lines ~481-485)
+- [x] PH12-03: Auto fan ramp-up during print
+  - Added automatic cooling fan speed to 100 when status transitions to 'printing'
+  - Resets coolingFanSpeed to 0 when print stops or completes
+  - Applied in simulatePrintProgress (heating->printing transition) and stopPrint
+  - File: electron/main/state/PrinterStateStore.ts (lines ~464-465, ~443-444, ~504-505)
 
 [... remaining phases not started ...]
 
