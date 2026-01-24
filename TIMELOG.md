@@ -37,5 +37,6 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T18:58:45-05:00 | 2026-01-23T18:59:38-05:00 | PH3-01: Add cumulative stats to PrinterState interface | ~1 minute |
 | 2026-01-23T19:00:15-05:00 | 2026-01-23T19:01:45-05:00 | PH3-02: Initialize cumulative stats in StateStore | ~1 minute |
 | 2026-01-23T19:02:00-05:00 | 2026-01-23T19:03:56-05:00 | PH3-03: Increment cumulative stats on print complete | ~2 minutes |
+| 2026-01-23T19:04:52-05:00 | 2026-01-23T19:05:44-05:00 | PH3-04: Return cumulative stats in /detail | ~1 minute |
 
 ---
