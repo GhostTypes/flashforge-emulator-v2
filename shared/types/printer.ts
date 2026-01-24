@@ -186,6 +186,22 @@ export interface EndstopState {
 }
 
 /**
+ * G-code tool data for multi-extruder prints (AD5X)
+ */
+export interface GcodeToolData {
+  /** Tool index (0 = right, 1 = left) */
+  toolIndex: number;
+  /** Filament type used (e.g., "PLA", "PETG") */
+  filamentType: string;
+  /** Filament color as hex code */
+  filamentColor: string;
+  /** Estimated filament length in mm */
+  filamentLen: number;
+  /** Estimated filament weight in grams */
+  filamentWeight: number;
+}
+
+/**
  * File entry in printer storage
  */
 export interface PrinterFile {
@@ -199,6 +215,16 @@ export interface PrinterFile {
   printTime: number;
   /** Whether this is a 3MF file */
   is3mf: boolean;
+  /** Number of tools/extruders used in the print (1-2 for AD5X) */
+  gcodeToolCnt: number;
+  /** Tool-specific data for multi-extruder prints */
+  gcodeToolDatas: GcodeToolData[];
+  /** Whether this print uses the material station */
+  useMatlStation: boolean;
+  /** Total filament weight in grams */
+  totalFilamentWeight: number;
+  /** Base64-encoded thumbnail PNG data */
+  thumbnail: string;
 }
 
 /**
