@@ -20,7 +20,7 @@ Branch: feature/emulator-gap-closures
 - [x] P2-03: Add measure field to /detail response
 - [x] P2-04: Use extracted thumbnail for TCP M662
 - [x] P2-05: Persist speed parameter in printerCtl_cmd
-- [ ] P2-06: Add heating state transition on temperature changes
+- [x] P2-06: Add heating state transition on temperature changes
 - [ ] P2-07: Omit hasMatlStation for non-AD5X models
 
 ## Completed Tasks
@@ -36,3 +36,4 @@ Branch: feature/emulator-gap-closures
 - [x] P2-03: Added measure field to /detail response in HttpServer.ts with format buildVolume.x X buildVolume.y X buildVolume.z (e.g., "220X220X220"), matching production printer API
 - [x] P2-04: Updated TCP M662 handler in TcpServer.ts to use file.thumbnail property instead of hardcoded PNG, with fallback to placeholder if thumbnail is empty
 - [x] P2-05: Added updatePrintSpeed method to PrinterStateStore and updated HttpServer.ts printerCtl_cmd handler to persist speed parameter to state when received via HTTP API, matching production printer behavior
+- [x] P2-06: Added heating state transition logic to HttpServer.ts temperatureCtl_cmd handler, transitions to 'heating' state when new target temperatures exceed current temperatures and printer is idle, matching real printer behavior
