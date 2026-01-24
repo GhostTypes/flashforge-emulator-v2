@@ -69,6 +69,10 @@
   - Add 100g crude estimate to cumulativeFilament
   - Emit cumulative-stats-changed event with current values
   - File: electron/main/state/PrinterStateStore.ts (lines ~30-35, ~436-444)
+- [x] PH3-04: Return cumulative stats in /detail
+  - Changed cumulativeFilament and cumulativePrintTime to return state values
+  - Replaced hardcoded 0 with state.cumulativeFilament and state.cumulativePrintTime
+  - File: electron/main/services/HttpServer.ts (lines ~386-387)
 
 [... remaining phases not started ...]
 
