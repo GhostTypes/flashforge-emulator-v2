@@ -583,6 +583,14 @@ export class PrinterStateStore extends EventEmitter {
   }
 
   /**
+   * Updates print speed percentage
+   */
+  updatePrintSpeed(speed: number): void {
+    this.#state.currentPrintSpeed = speed;
+    this.emit('state-changed', this.#state);
+  }
+
+  /**
    * Adds a file to the file list
    */
   addFile(file: PrinterFile): void {

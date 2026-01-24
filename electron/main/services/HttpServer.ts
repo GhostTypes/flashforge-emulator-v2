@@ -570,7 +570,7 @@ export class HttpServer extends EventEmitter {
 
       case 'printerCtl_cmd': {
         if (typeof args?.speed === 'number') {
-          // Speed adjustment - would be stored in state
+          printerStateStore.updatePrintSpeed(args.speed);
         }
         if (typeof args?.chamberFan === 'number') {
           printerStateStore.updateFan({ chamberFanSpeed: args.chamberFan });

@@ -3,7 +3,7 @@
 Final Gap Closure Sprint - Started 2026-01-23
 Branch: feature/emulator-gap-closures
 
-## Incomplete Tasks (7 total)
+## Incomplete Tasks (6 total)
 
 ### Priority 1 (Critical)
 - [x] P1-01: Fix field name: coolingLeftFanSpeed → coolingFanLeftSpeed
@@ -19,7 +19,7 @@ Branch: feature/emulator-gap-closures
 - [x] P2-02: Fix indepMatlInfo structure
 - [x] P2-03: Add measure field to /detail response
 - [x] P2-04: Use extracted thumbnail for TCP M662
-- [ ] P2-05: Persist speed parameter in printerCtl_cmd
+- [x] P2-05: Persist speed parameter in printerCtl_cmd
 - [ ] P2-06: Add heating state transition on temperature changes
 - [ ] P2-07: Omit hasMatlStation for non-AD5X models
 
@@ -35,3 +35,4 @@ Branch: feature/emulator-gap-closures
 - [x] P2-02: Fixed indepMatlInfo structure in HttpServer.ts to match production API by removing currentLoadSlot and currentSlot fields, now only contains materialColor, materialName, stateAction, and stateStep as defined in ff-5mp-api-ts
 - [x] P2-03: Added measure field to /detail response in HttpServer.ts with format buildVolume.x X buildVolume.y X buildVolume.z (e.g., "220X220X220"), matching production printer API
 - [x] P2-04: Updated TCP M662 handler in TcpServer.ts to use file.thumbnail property instead of hardcoded PNG, with fallback to placeholder if thumbnail is empty
+- [x] P2-05: Added updatePrintSpeed method to PrinterStateStore and updated HttpServer.ts printerCtl_cmd handler to persist speed parameter to state when received via HTTP API, matching production printer behavior
