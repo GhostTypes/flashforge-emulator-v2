@@ -526,8 +526,6 @@ export class HttpServer extends EventEmitter {
         stateStep: 0,
       };
       detail['indepMatlInfo'] = indepMatlInfo;
-    } else {
-      detail['hasMatlStation'] = false;
     }
 
     this.emit('response-sent', { path: '/detail', detail });
