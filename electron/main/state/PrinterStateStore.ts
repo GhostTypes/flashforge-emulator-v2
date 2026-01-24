@@ -31,7 +31,8 @@ export type StateChangeEvent =
   | 'state-changed'
   | 'temperature-changed'
   | 'position-changed'
-  | 'job-changed';
+  | 'job-changed'
+  | 'cumulative-stats-changed';
 
 /**
  * Default temperature state
@@ -431,6 +432,16 @@ export class PrinterStateStore extends EventEmitter {
         // Cool down
         this.#state.temperature.nozzleTarget = 0;
         this.#state.temperature.bedTarget = 0;
+
+        // Increment cumulative stats
+        this.#state.cumulativePrintTime += job.elapsedTime;
+        // Use crude estimate for filament: 100g per job (will be refined later)
+        this.#state.cumulativeFilament += 100;
+        // Emit cumulative stats changed event
+        this.emit('cumulative-stats-changed', {
+          cumulativePrintTime: this.#state.cumulativePrintTime,
+          cumulativeFilament: this.#state.cumulativeFilament,
+        });
       }
 
       this.emit('job-changed', job);
