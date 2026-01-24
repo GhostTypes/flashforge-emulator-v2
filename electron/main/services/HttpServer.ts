@@ -466,6 +466,7 @@ export class HttpServer extends EventEmitter {
       lightStatus: state.led.enabled ? 'open' : 'close',
       location: '',
       macAddr: state.macAddress,
+      measure: `${profile.buildVolume.x}X${profile.buildVolume.y}X${profile.buildVolume.z}`,
       name: state.machineName,
       nozzleCnt: state.nozzleCount,
       nozzleModel: state.nozzleModel,
