@@ -138,6 +138,68 @@ function estimatePrintTime(fileSize: number): number {
 }
 
 /**
+ * Extracts thumbnail image data from G-code file content
+ *
+ * G-code files may contain embedded thumbnails in the format:
+ * ; thumbnail begin
+ * ; <base64_encoded_png_data_line_1>
+ * ; <base64_encoded_png_data_line_2>
+ * ; ...
+ * ; thumbnail end
+ *
+ * @param gcodeContent The raw G-code file content as a string or Buffer
+ * @returns Base64-encoded PNG data, or empty string if no thumbnail found
+ */
+function extractThumbnailFromGcode(gcodeContent: string | Buffer): string {
+  const content = typeof gcodeContent === 'string' ? gcodeContent : gcodeContent.toString('utf-8');
+
+  // Find the thumbnail section
+  const thumbnailBeginIndex = content.indexOf('; thumbnail begin');
+  if (thumbnailBeginIndex === -1) {
+    return '';
+  }
+
+  const thumbnailEndIndex = content.indexOf('; thumbnail end', thumbnailBeginIndex);
+  if (thumbnailEndIndex === -1) {
+    return '';
+  }
+
+  // Extract the thumbnail section
+  const thumbnailSection = content.slice(thumbnailBeginIndex, thumbnailEndIndex);
+
+  // Collect all base64 lines (lines starting with ';' after 'begin' and before 'end')
+  const lines = thumbnailSection.split('\n');
+  const base64Lines: string[] = [];
+
+  let inThumbnailData = false;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    if (trimmedLine === '; thumbnail begin') {
+      inThumbnailData = true;
+      continue;
+    }
+
+    if (trimmedLine === '; thumbnail end') {
+      break;
+    }
+
+    // Collect base64 data lines (lines starting with ';' after 'begin')
+    if (inThumbnailData && trimmedLine.startsWith(';') && trimmedLine.length > 1) {
+      // Remove the '; ' prefix to get raw base64 data
+      const base64Data = trimmedLine.substring(1).trim();
+      if (base64Data.length > 0) {
+        base64Lines.push(base64Data);
+      }
+    }
+  }
+
+  // Join all base64 lines into a single string
+  return base64Lines.join('');
+}
+
+/**
  * HTTP Server for FlashForge printer emulation
  *
  * Listens on port 8898 and handles modern HTTP API requests.
@@ -593,11 +655,12 @@ export class HttpServer extends EventEmitter {
       return;
     }
 
-    // Return placeholder 1x1 transparent PNG
+    // Return extracted thumbnail if available, otherwise placeholder
+    const thumbnailData = file.thumbnail || '';
     const placeholderPng =
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
     this.emit('response-sent', { path: '/gcodeThumb', fileName });
-    res.json(this.#success(placeholderPng, 'imageData'));
+    res.json(this.#success(thumbnailData || placeholderPng, 'imageData'));
   });
 
   /**
@@ -701,6 +764,12 @@ export class HttpServer extends EventEmitter {
     // Calculate total filament weight from tool data
     const totalFilamentWeight = gcodeToolDatas.reduce((sum, tool) => sum + tool.filamentWeight, 0);
 
+    // Extract thumbnail from G-code content (only for .gcode files)
+    let thumbnail = '';
+    if (!is3mf && uploadedFile.buffer) {
+      thumbnail = extractThumbnailFromGcode(uploadedFile.buffer);
+    }
+
     const printerFile: PrinterFile = {
       name: fileName,
       path: `/data/${fileName}`,
@@ -711,7 +780,7 @@ export class HttpServer extends EventEmitter {
       gcodeToolDatas,
       useMatlStation: useMatlStation ?? false,
       totalFilamentWeight,
-      thumbnail: '', // Will be populated in PH13-04 from G-code comments
+      thumbnail,
     };
 
     // Add file to state
