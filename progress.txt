@@ -62,6 +62,13 @@
   - Load from config in initialize() method for persistence
   - Added handlers in updateConfig() to sync state with config values
   - File: shared/types/printer.ts (lines ~386-389, ~405-406), PrinterStateStore.ts (lines ~197-199, ~229-234)
+- [x] PH3-03: Increment cumulative stats on print complete
+  - Added cumulative-stats-changed to StateChangeEvent union
+  - In simulatePrintProgress, when progress reaches 100%
+  - Add elapsed time to cumulativePrintTime
+  - Add 100g crude estimate to cumulativeFilament
+  - Emit cumulative-stats-changed event with current values
+  - File: electron/main/state/PrinterStateStore.ts (lines ~30-35, ~436-444)
 
 [... remaining phases not started ...]
 
