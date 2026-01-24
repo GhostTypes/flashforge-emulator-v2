@@ -75,4 +75,9 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T19:24:30-05:00 | 2026-01-23T19:26:22-05:00 | PH8-02: Implement M190 (set bed temp and wait) | ~2 minutes |
 | 2026-01-23T19:27:16-05:00 | 2026-01-23T19:28:04-05:00 | PH8-03: Implement M191 (wait for bed cooling) | ~1 minute |
 
+### 2026-01-23 - Phase 9 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T19:28:46-05:00 | 2026-01-23T19:30:40-05:00 | PH9-01: Implement G90 (absolute positioning) | ~2 minutes |
+
 ---
