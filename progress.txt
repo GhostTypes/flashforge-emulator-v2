@@ -313,6 +313,13 @@
   - State already stores 1-based slotIds, now API correctly returns them as-is
   - Documented in comment: "State uses 1-based indexing (1-4) matching API"
   - File: electron/main/services/HttpServer.ts (line 505)
+- [x] PH15-02: Add indepMatlInfo properties
+  - Added IndepMatlInfo interface to shared/types/printer.ts
+  - Includes materialColor and materialName properties
+  - Updated HttpServer.ts to import IndepMatlInfo type
+  - Populated indepMatlInfo with data from current slot
+  - Falls back to empty string for color and 'PLA' for material name if slot not found
+  - File: shared/types/printer.ts (lines 130-147), HttpServer.ts (lines 16-21, ~512-524)
 
 [... remaining phases not started ...]
 

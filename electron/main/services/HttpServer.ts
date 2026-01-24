@@ -13,7 +13,12 @@ import type { Request, RequestHandler, Response } from 'express';
 import express from 'express';
 import type { FileFilterCallback } from 'multer';
 import multer from 'multer';
-import type { GcodeToolData, PrinterFile, PrinterModel } from '../../../shared/types/printer';
+import type {
+  GcodeToolData,
+  IndepMatlInfo,
+  PrinterFile,
+  PrinterModel,
+} from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
 
 /**
@@ -508,12 +513,20 @@ export class HttpServer extends EventEmitter {
           materialColor: slot.materialColor,
         })),
       };
-      detail['indepMatlInfo'] = {
-        currentLoadSlot: 0,
+
+      // Build indepMatlInfo from current slot
+      const currentSlot = state.materialStation.slots.find(
+        (slot) => slot.slotId === state.materialStation.currentSlot
+      );
+      const indepMatlInfo: IndepMatlInfo = {
+        currentLoadSlot: state.materialStation.currentLoadSlot,
         currentSlot: state.materialStation.currentSlot,
+        materialColor: currentSlot?.materialColor || '',
+        materialName: currentSlot?.materialName || 'PLA',
         stateAction: 0,
         stateStep: 0,
       };
+      detail['indepMatlInfo'] = indepMatlInfo;
     } else {
       detail['hasMatlStation'] = false;
     }

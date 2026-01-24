@@ -128,6 +128,25 @@ export type MaterialSlotUpdate = {
 };
 
 /**
+ * Independent material info for AD5X /detail response
+ * Represents the currently loaded material in the active slot
+ */
+export interface IndepMatlInfo {
+  /** Currently loading slot (0 if none) */
+  currentLoadSlot: number;
+  /** Currently active slot */
+  currentSlot: number;
+  /** Material color as hex code */
+  materialColor: string;
+  /** Material name (e.g., "PLA", "PETG") */
+  materialName: string;
+  /** State action code */
+  stateAction: number;
+  /** State step code */
+  stateStep: number;
+}
+
+/**
  * Material station state (AD5X only)
  */
 export interface MaterialStationState {
