@@ -321,7 +321,18 @@
   - Falls back to empty string for color and 'PLA' for material name if slot not found
   - File: shared/types/printer.ts (lines 130-147), HttpServer.ts (lines 16-21, ~512-524)
 
-[... remaining phases not started ...]
+### Phase 16: M119 Status Mapping
+- [x] PH16-01: Add pausing to M119 status map
+  - Added 'pausing' status mapping to 'PAUSED' in M119 handler
+  - Maps intermediate pausing state to PAUSED protocol value
+  - File: electron/main/services/TcpServer.ts (line ~516)
+- [x] PH16-02: Add cancel to M119 status map
+  - Added 'cancel' status mapping to 'BUSY' in M119 handler
+  - Also added 'calibrate_doing' status mapping to 'BUSY'
+  - Both are active operations that should report BUSY state
+  - File: electron/main/services/TcpServer.ts (lines ~518, ~522)
+
+## ALL PHASES COMPLETE - Project Finished
 
 ## Notes
 - All tasks must complete in strict phase order
