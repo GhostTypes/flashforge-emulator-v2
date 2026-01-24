@@ -80,5 +80,14 @@ Tracking time spent on gap closure tasks.
 |-------|-----|------|----------|
 | 2026-01-23T19:28:46-05:00 | 2026-01-23T19:30:40-05:00 | PH9-01: Implement G90 (absolute positioning) | ~2 minutes |
 | 2026-01-23T19:31:30-05:00 | 2026-01-23T19:32:27-05:00 | PH9-02: Implement G1 (move to XYZ) | ~1 minute |
+| 2026-01-23T19:32:27-05:00 | 2026-01-23T19:32:27-05:00 | PH9-03: Implement G1 (extrude E) | ~0 minutes (already done) |
+
+### 2026-01-23 - Phase 10 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T19:35:00-05:00 | 2026-01-23T19:36:45-05:00 | PH10-01: Fix M662 to send binary PNG | ~2 minutes |
+| 2026-01-23T19:35:00-05:00 | 2026-01-23T19:36:45-05:00 | PH10-02: Fix M661 timing (delay file list) | ~0 minutes (done with PH10-01) |
+| 2026-01-23T19:36:45-05:00 | 2026-01-23T19:36:51-05:00 | PH10-03: Fix M114 format (use A/B instead of E) | ~1 minute |
+| 2026-01-23T19:36:51-05:00 | 2026-01-23T19:36:51-05:00 | PH10-04: Fix M105 format (add T1) | ~0 minutes (done with PH10-03) |
 
 ---
