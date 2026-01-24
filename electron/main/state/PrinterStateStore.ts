@@ -194,6 +194,9 @@ export class PrinterStateStore extends EventEmitter {
     this.#state.serialNumber = this.#config.serialNumber;
     this.#state.checkCode = this.#config.checkCode;
     this.#state.machineName = `${profile.name} Emulator`;
+    // Load cumulative stats from config for persistence
+    this.#state.cumulativePrintTime = this.#config.cumulativePrintTime;
+    this.#state.cumulativeFilament = this.#config.cumulativeFilament;
     this.emit('state-changed', this.#state);
   }
 
@@ -222,6 +225,12 @@ export class PrinterStateStore extends EventEmitter {
     }
     if (config.simulationSpeed !== undefined) {
       this.#simulationSpeed = config.simulationSpeed;
+    }
+    if (config.cumulativePrintTime !== undefined) {
+      this.#state.cumulativePrintTime = config.cumulativePrintTime;
+    }
+    if (config.cumulativeFilament !== undefined) {
+      this.#state.cumulativeFilament = config.cumulativeFilament;
     }
 
     this.emit('state-changed', this.#state);

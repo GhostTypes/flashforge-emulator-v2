@@ -258,7 +258,11 @@ You are a code reviewer. Analyze code and provide feedback.
 
 ### 4. claudius_runner.py (customized)
 
-If the user wants a customized runner, copy from `scripts/claudius_runner.py` and modify the `SYSTEM_PROMPT` constant to include:
+**CRITICAL: Do NOT generate this file from scratch.** Output capture and signal handling are complex and fragile on different OSs (especially Windows).
+
+1. **COPY** the script from `scripts/claudius_runner.py` in this skill folder to the user's project root.
+   - Use `cp` (Linux/Mac) or `copy` (Windows) or `read_file` + `write_to_file`.
+2. **MODIFY** the `SYSTEM_PROMPT` constant in the copied file to include:
 
 - Project-specific context
 - Custom constraints

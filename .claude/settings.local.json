@@ -4,7 +4,11 @@
       "Skill(get-time)",
       "Bash(python:*)",
       "Skill(biome)",
-      "Skill(tailwind-css)"
+      "Skill(tailwind-css)",
+      "Skill(best-practices)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Skill(agent-factory)"
     ]
   }
 }
