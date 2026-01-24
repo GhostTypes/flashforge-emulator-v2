@@ -306,6 +306,14 @@
   - Updates state.fan.coolingLeftFanSpeed when provided
   - File: electron/main/services/HttpServer.ts (lines 572-574), PrinterStateStore.ts (line 552)
 
+### Phase 15: Material Station Fixes
+- [x] PH15-01: Fix slot indexing inconsistency
+  - Removed incorrect `slotId - 1` calculation in slotInfos mapping
+  - API uses 1-based indexing (slotId: 1, 2, 3, 4), not 0-based
+  - State already stores 1-based slotIds, now API correctly returns them as-is
+  - Documented in comment: "State uses 1-based indexing (1-4) matching API"
+  - File: electron/main/services/HttpServer.ts (line 505)
+
 [... remaining phases not started ...]
 
 ## Notes

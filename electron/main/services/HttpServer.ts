@@ -502,7 +502,7 @@ export class HttpServer extends EventEmitter {
         stateAction: 0,
         stateStep: 0,
         slotInfos: state.materialStation.slots.map((slot) => ({
-          slotId: slot.slotId - 1, // API uses 0-based indexing
+          slotId: slot.slotId, // State uses 1-based indexing (1-4) matching API
           hasFilament: slot.hasFilament,
           materialName: slot.materialName || 'PLA',
           materialColor: slot.materialColor,
