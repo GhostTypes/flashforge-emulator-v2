@@ -400,13 +400,24 @@ export class PrinterStateStore extends EventEmitter {
 
   /**
    * Pauses the current print job
+   * Transitions to 'pausing' state first, then 'paused' after 500ms delay
+   * to match real printer behavior
    */
   pausePrint(): void {
     if (this.#state.printJob.status === 'printing') {
-      this.#state.printJob.status = 'paused';
-      this.#state.machineStatus = 'paused';
+      // First transition to 'pausing' state
+      this.#state.printJob.status = 'pausing';
+      this.#state.machineStatus = 'pausing';
       this.emit('job-changed', this.#state.printJob);
       this.emit('state-changed', this.#state);
+
+      // Then transition to 'paused' after 500ms delay
+      setTimeout(() => {
+        this.#state.printJob.status = 'paused';
+        this.#state.machineStatus = 'paused';
+        this.emit('job-changed', this.#state.printJob);
+        this.emit('state-changed', this.#state);
+      }, 500);
     }
   }
 

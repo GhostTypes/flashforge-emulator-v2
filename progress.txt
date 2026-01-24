@@ -252,6 +252,12 @@
   - Resets coolingFanSpeed to 0 when print stops or completes
   - Applied in simulatePrintProgress (heating->printing transition) and stopPrint
   - File: electron/main/state/PrinterStateStore.ts (lines ~464-465, ~443-444, ~504-505)
+- [x] PH12-04: Implement pausing state transition
+  - Modified pausePrint() to first set status to 'pausing'
+  - Uses setTimeout to transition to 'paused' after 500ms delay
+  - Matches real printer behavior with intermediate 'pausing' state
+  - Emits state-changed events for both transitions
+  - File: electron/main/state/PrinterStateStore.ts (lines ~406-422)
 
 [... remaining phases not started ...]
 
