@@ -89,6 +89,10 @@
   - estimatedRightLen = (progress / 100) * 1000mm (crude estimate)
   - Left extruder estimates remain 0 (AD5X dual extrusion not yet implemented)
   - File: electron/main/state/PrinterStateStore.ts (lines ~432-436)
+- [x] PH4-04: Return filament estimates in /detail
+  - Changed /detail response to return state values for filament estimates
+  - Replaced hardcoded 0 with state.estimatedLeftLen, state.estimatedLeftWeight, state.estimatedRightLen, state.estimatedRightWeight
+  - File: electron/main/services/HttpServer.ts (lines ~391-394)
 
 [... remaining phases not started ...]
 
