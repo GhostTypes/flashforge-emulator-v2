@@ -13,7 +13,12 @@ import type { Request, RequestHandler, Response } from 'express';
 import express from 'express';
 import type { FileFilterCallback } from 'multer';
 import multer from 'multer';
-import type { PrinterFile, PrinterModel } from '../../../shared/types/printer';
+import type {
+  GcodeToolData,
+  IndepMatlInfo,
+  PrinterFile,
+  PrinterModel,
+} from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
 
 /**
@@ -25,6 +30,24 @@ interface AuthCredentials {
 }
 
 /**
+ * G-code file entry with detailed information (AD5X format)
+ */
+interface GcodeFileEntry {
+  /** The name of the G-code file */
+  gcodeFileName: string;
+  /** Number of tools/materials used */
+  gcodeToolCnt?: number;
+  /** Detailed information for each tool/material */
+  gcodeToolDatas?: GcodeToolData[];
+  /** Estimated printing time in seconds */
+  printingTime: number;
+  /** Total estimated filament weight in grams */
+  totalFilamentWeight?: number;
+  /** Whether the file uses material station */
+  useMatlStation?: boolean;
+}
+
+/**
  * Standard API response wrapper
  */
 interface ApiResponse<T = unknown> {
@@ -33,6 +56,7 @@ interface ApiResponse<T = unknown> {
   detail?: T;
   product?: T;
   gcodeList?: T;
+  gcodeListDetail?: GcodeFileEntry[];
   imageData?: string;
 }
 
@@ -47,6 +71,12 @@ interface ControlArgs extends Record<string, unknown> {
   action?: string;
   internal?: string;
   external?: string;
+  platformTemp?: number;
+  rightTemp?: number;
+  leftTemp?: number;
+  chamberTemp?: number;
+  zAxisCompensation?: number;
+  coolingLeftFan?: number;
 }
 
 /**
@@ -116,6 +146,68 @@ function estimatePrintTime(fileSize: number): number {
   const minutesPerMB = 10;
   const fileSizeMB = fileSize / (1024 * 1024);
   return Math.max(60, Math.floor(fileSizeMB * minutesPerMB * 60));
+}
+
+/**
+ * Extracts thumbnail image data from G-code file content
+ *
+ * G-code files may contain embedded thumbnails in the format:
+ * ; thumbnail begin
+ * ; <base64_encoded_png_data_line_1>
+ * ; <base64_encoded_png_data_line_2>
+ * ; ...
+ * ; thumbnail end
+ *
+ * @param gcodeContent The raw G-code file content as a string or Buffer
+ * @returns Base64-encoded PNG data, or empty string if no thumbnail found
+ */
+function extractThumbnailFromGcode(gcodeContent: string | Buffer): string {
+  const content = typeof gcodeContent === 'string' ? gcodeContent : gcodeContent.toString('utf-8');
+
+  // Find the thumbnail section
+  const thumbnailBeginIndex = content.indexOf('; thumbnail begin');
+  if (thumbnailBeginIndex === -1) {
+    return '';
+  }
+
+  const thumbnailEndIndex = content.indexOf('; thumbnail end', thumbnailBeginIndex);
+  if (thumbnailEndIndex === -1) {
+    return '';
+  }
+
+  // Extract the thumbnail section
+  const thumbnailSection = content.slice(thumbnailBeginIndex, thumbnailEndIndex);
+
+  // Collect all base64 lines (lines starting with ';' after 'begin' and before 'end')
+  const lines = thumbnailSection.split('\n');
+  const base64Lines: string[] = [];
+
+  let inThumbnailData = false;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    if (trimmedLine === '; thumbnail begin') {
+      inThumbnailData = true;
+      continue;
+    }
+
+    if (trimmedLine === '; thumbnail end') {
+      break;
+    }
+
+    // Collect base64 data lines (lines starting with ';' after 'begin')
+    if (inThumbnailData && trimmedLine.startsWith(';') && trimmedLine.length > 1) {
+      // Remove the '; ' prefix to get raw base64 data
+      const base64Data = trimmedLine.substring(1).trim();
+      if (base64Data.length > 0) {
+        base64Lines.push(base64Data);
+      }
+    }
+  }
+
+  // Join all base64 lines into a single string
+  return base64Lines.join('');
 }
 
 /**
@@ -207,6 +299,9 @@ export class HttpServer extends EventEmitter {
 
     // POST /uploadGcode - Upload and optionally print (uses multer for file handling)
     this.#app.post('/uploadGcode', upload.single('gcodeFile'), this.#handleUploadGcode.bind(this));
+
+    // POST /deleteGcode - Delete a G-code file
+    this.#app.post('/deleteGcode', this.#handleDeleteGcode.bind(this));
 
     // Error handler
     this.#app.use(
@@ -351,28 +446,27 @@ export class HttpServer extends EventEmitter {
       chamberTargetTemp: state.temperature.chamberTarget,
       chamberTemp: state.temperature.chamberCurrent,
       coolingFanSpeed: state.fan.coolingFanSpeed,
-      cumulativeFilament: 0,
-      cumulativePrintTime: 0,
-      currentPrintSpeed: 100,
+      coolingFanLeftSpeed: profile.hasMaterialStation ? state.fan.coolingLeftFanSpeed : 0,
+      cumulativeFilament: state.cumulativeFilament,
+      cumulativePrintTime: state.cumulativePrintTime,
+      currentPrintSpeed: state.currentPrintSpeed,
       doorStatus: state.doorOpen ? 'open' : 'close',
-      errorCode: '',
-      estimatedLeftLen: 0,
-      estimatedLeftWeight: 0,
-      estimatedRightLen: 0,
-      estimatedRightWeight: 0,
+      errorCode: state.errorCode,
+      estimatedLeftLen: state.estimatedLeftLen,
+      estimatedLeftWeight: state.estimatedLeftWeight,
+      estimatedRightLen: state.estimatedRightLen,
+      estimatedRightWeight: state.estimatedRightWeight,
       estimatedTime: state.printJob.estimatedTimeRemaining,
       externalFanStatus: state.fan.externalFanEnabled ? 'open' : 'close',
-      fillAmount: 0,
+      fillAmount: state.fillAmount,
       firmwareVersion: state.firmwareVersion,
       flashRegisterCode: '',
       internalFanStatus: state.fan.internalFanEnabled ? 'open' : 'close',
       ipAddr: state.ipAddress,
-      leftFilamentType: '',
-      leftTargetTemp: 0,
-      leftTemp: 0,
       lightStatus: state.led.enabled ? 'open' : 'close',
       location: '',
-      macAddr: state.macAddress.replace(/:/g, ''),
+      macAddr: state.macAddress,
+      measure: `${profile.buildVolume.x}X${profile.buildVolume.y}X${profile.buildVolume.z}`,
       name: state.machineName,
       nozzleCnt: state.nozzleCount,
       nozzleModel: state.nozzleModel,
@@ -388,20 +482,25 @@ export class HttpServer extends EventEmitter {
         : '',
       printLayer: state.printJob.currentLayer,
       printProgress: state.printJob.progress,
-      printSpeedAdjust: 100,
-      remainingDiskSpace: 1024,
-      rightFilamentType: 'PLA',
+      printSpeedAdjust: state.printSpeedAdjust,
+      hasRightFilament: state.hasRightFilament,
+      remainingDiskSpace: state.remainingDiskSpace,
+      rightFilamentType: state.rightFilamentType,
       rightTargetTemp: state.temperature.nozzleTarget,
       rightTemp: state.temperature.nozzleCurrent,
       status: statusMap[state.machineStatus] ?? 'ready',
       targetPrintLayer: state.printJob.totalLayers,
-      tvoc: 0,
-      zAxisCompensation: 0,
+      tvoc: state.tvoc,
+      zAxisCompensation: state.zAxisCompensation,
     };
 
     // Add AD5X material station info if applicable
     if (profile.hasMaterialStation) {
       detail['hasMatlStation'] = true;
+      detail['hasLeftFilament'] = state.hasLeftFilament;
+      detail['leftFilamentType'] = state.leftFilamentType;
+      detail['leftTemp'] = state.temperature.leftNozzleCurrent;
+      detail['leftTargetTemp'] = state.temperature.leftNozzleTarget;
       detail['matlStationInfo'] = {
         currentLoadSlot: state.materialStation.currentLoadSlot,
         currentSlot: state.materialStation.currentSlot,
@@ -409,20 +508,24 @@ export class HttpServer extends EventEmitter {
         stateAction: 0,
         stateStep: 0,
         slotInfos: state.materialStation.slots.map((slot) => ({
-          slotId: slot.slotId - 1, // API uses 0-based indexing
+          slotId: slot.slotId, // State uses 1-based indexing (1-4) matching API
           hasFilament: slot.hasFilament,
           materialName: slot.materialName || 'PLA',
           materialColor: slot.materialColor,
         })),
       };
-      detail['indepMatlInfo'] = {
-        currentLoadSlot: 0,
-        currentSlot: state.materialStation.currentSlot,
+
+      // Build indepMatlInfo from current slot
+      const currentSlot = state.materialStation.slots.find(
+        (slot) => slot.slotId === state.materialStation.currentSlot
+      );
+      const indepMatlInfo: IndepMatlInfo = {
+        materialColor: currentSlot?.materialColor || '',
+        materialName: currentSlot?.materialName || 'PLA',
         stateAction: 0,
         stateStep: 0,
       };
-    } else {
-      detail['hasMatlStation'] = false;
+      detail['indepMatlInfo'] = indepMatlInfo;
     }
 
     this.emit('response-sent', { path: '/detail', detail });
@@ -465,13 +568,19 @@ export class HttpServer extends EventEmitter {
 
       case 'printerCtl_cmd': {
         if (typeof args?.speed === 'number') {
-          // Speed adjustment - would be stored in state
+          printerStateStore.updatePrintSpeed(args.speed);
         }
         if (typeof args?.chamberFan === 'number') {
           printerStateStore.updateFan({ chamberFanSpeed: args.chamberFan });
         }
         if (typeof args?.coolingFan === 'number') {
           printerStateStore.updateFan({ coolingFanSpeed: args.coolingFan });
+        }
+        if (typeof args?.zAxisCompensation === 'number') {
+          printerStateStore.updateZAxisCompensation(args.zAxisCompensation);
+        }
+        if (typeof args?.coolingLeftFan === 'number') {
+          printerStateStore.updateFan({ coolingLeftFanSpeed: args.coolingLeftFan });
         }
         this.emit('command-executed', { cmd, args });
         break;
@@ -523,6 +632,41 @@ export class HttpServer extends EventEmitter {
         break;
       }
 
+      case 'temperatureCtl_cmd': {
+        // Handle temperature control commands
+        const state = printerStateStore.state;
+        const hasNewTargetTemp =
+          (typeof args?.platformTemp === 'number' &&
+            args.platformTemp > state.temperature.bedCurrent) ||
+          (typeof args?.rightTemp === 'number' &&
+            args.rightTemp > state.temperature.nozzleCurrent) ||
+          (typeof args?.leftTemp === 'number' &&
+            args.leftTemp > state.temperature.leftNozzleCurrent) ||
+          (typeof args?.chamberTemp === 'number' &&
+            args.chamberTemp > state.temperature.chamberCurrent);
+
+        if (typeof args?.platformTemp === 'number') {
+          printerStateStore.updateTemperature({ bedTarget: args.platformTemp });
+        }
+        if (typeof args?.rightTemp === 'number') {
+          printerStateStore.updateTemperature({ nozzleTarget: args.rightTemp });
+        }
+        if (typeof args?.leftTemp === 'number') {
+          printerStateStore.updateTemperature({ leftNozzleTarget: args.leftTemp });
+        }
+        if (typeof args?.chamberTemp === 'number') {
+          printerStateStore.updateTemperature({ chamberTarget: args.chamberTemp });
+        }
+
+        // Transition to 'heating' state if new target temps exceed current temps and status is idle
+        if (hasNewTargetTemp && state.machineStatus === 'idle') {
+          printerStateStore.setMachineStatus('heating');
+        }
+
+        this.emit('command-executed', { cmd, args });
+        break;
+      }
+
       default:
         this.emit('command-unknown', { cmd });
         break;
@@ -538,8 +682,23 @@ export class HttpServer extends EventEmitter {
     const files = printerStateStore.getFiles();
     const fileNames = files.slice(0, 10).map((f) => f.name);
 
+    // Build gcodeListDetail array with actual file metadata
+    const gcodeListDetail: GcodeFileEntry[] = files.slice(0, 10).map((file) => ({
+      gcodeFileName: file.name,
+      gcodeToolCnt: file.gcodeToolCnt,
+      gcodeToolDatas: file.gcodeToolDatas,
+      printingTime: file.printTime,
+      totalFilamentWeight: file.totalFilamentWeight,
+      useMatlStation: file.useMatlStation,
+    }));
+
     this.emit('response-sent', { path: '/gcodeList', count: fileNames.length });
-    res.json(this.#success(fileNames, 'gcodeList'));
+    res.json({
+      code: ResponseCode.Success,
+      message: 'Success',
+      gcodeList: fileNames,
+      gcodeListDetail,
+    } satisfies ApiResponse);
   });
 
   /**
@@ -560,9 +719,12 @@ export class HttpServer extends EventEmitter {
       return;
     }
 
-    // Return empty image data for now
+    // Return extracted thumbnail if available, otherwise placeholder
+    const thumbnailData = file.thumbnail || '';
+    const placeholderPng =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
     this.emit('response-sent', { path: '/gcodeThumb', fileName });
-    res.json(this.#success('', 'imageData'));
+    res.json(this.#success(thumbnailData || placeholderPng, 'imageData'));
   });
 
   /**
@@ -592,8 +754,16 @@ export class HttpServer extends EventEmitter {
       return;
     }
 
+    // Parse AD5X parameters (stored for future implementation)
+    const ad5xParams = {
+      flowCalibration: body.flowCalibration ?? false,
+      useMatlStation: body.useMatlStation ?? false,
+      gcodeToolCnt: body.gcodeToolCnt ?? 0,
+      materialMappings: body.materialMappings ?? [],
+    };
+
     printerStateStore.startPrint(fileName, file.printTime);
-    this.emit('print-started', { fileName });
+    this.emit('print-started', { fileName, ad5xParams });
     res.json(this.#success());
   });
 
@@ -616,31 +786,84 @@ export class HttpServer extends EventEmitter {
     const printNow = req.headers['printnow'] === 'true';
     const levelingBeforePrint = req.headers['levelingbeforeprint'] === 'true';
 
-    // Parse AD5X headers (reserved for future use)
-    void req.headers['flowcalibration'];
-    void req.headers['usematlstation'];
-    void req.headers['gcodeltoolcnt'];
-    void req.headers['materialmappings'];
+    // Parse AD5X headers
+    const flowCalibration = req.headers['flowcalibration'] === 'true';
+    const useMatlStation = req.headers['usematlstation'] === 'true';
+    const gcodeToolCnt = Number.parseInt(req.headers['gcodeltoolcnt'] as string, 10) || 0;
+
+    // Base64 decode materialMappings if present
+    let materialMappings: unknown[] = [];
+    const materialMappingsHeader = req.headers['materialmappings'] as string;
+    if (materialMappingsHeader) {
+      try {
+        const decoded = Buffer.from(materialMappingsHeader, 'base64').toString('utf-8');
+        materialMappings = JSON.parse(decoded) as unknown[];
+      } catch {
+        // If decoding fails, leave as empty array
+        materialMappings = [];
+      }
+    }
 
     // Create printer file entry
     const printTime = estimatePrintTime(fileSize);
     const is3mf = fileName.toLowerCase().endsWith('.3mf');
+
+    // Build gcodeToolDatas from materialMappings if available
+    const gcodeToolDatas: GcodeToolData[] = [];
+    if (materialMappings.length > 0) {
+      materialMappings.forEach((mapping: unknown, index: number) => {
+        if (typeof mapping === 'object' && mapping !== null) {
+          const m = mapping as Record<string, unknown>;
+          gcodeToolDatas.push({
+            toolIndex: index,
+            filamentType: (m['filamentType'] as string) ?? 'PLA',
+            filamentColor: (m['filamentColor'] as string) ?? '#000000',
+            filamentLen: (m['filamentLen'] as number) ?? 0,
+            filamentWeight: (m['filamentWeight'] as number) ?? 0,
+          });
+        }
+      });
+    }
+
+    // Calculate total filament weight from tool data
+    const totalFilamentWeight = gcodeToolDatas.reduce((sum, tool) => sum + tool.filamentWeight, 0);
+
+    // Extract thumbnail from G-code content (only for .gcode files)
+    let thumbnail = '';
+    if (!is3mf && uploadedFile.buffer) {
+      thumbnail = extractThumbnailFromGcode(uploadedFile.buffer);
+    }
+
     const printerFile: PrinterFile = {
       name: fileName,
       path: `/data/${fileName}`,
       size: fileSize,
       printTime,
       is3mf,
+      gcodeToolCnt: gcodeToolCnt ?? gcodeToolDatas.length ?? 1,
+      gcodeToolDatas,
+      useMatlStation: useMatlStation ?? false,
+      totalFilamentWeight,
+      thumbnail,
     };
 
     // Add file to state
     printerStateStore.addFile(printerFile);
+
+    // Store AD5X parameters for this upload
+    const ad5xParams = {
+      flowCalibration,
+      useMatlStation,
+      gcodeToolCnt,
+      materialMappings,
+    };
 
     this.emit('upload-complete', {
       fileName,
       fileSize,
       printNow,
       levelingBeforePrint,
+      ad5xParams,
     });
 
     // Start printing if requested
@@ -655,9 +878,33 @@ export class HttpServer extends EventEmitter {
       }
 
       printerStateStore.startPrint(fileName, printTime);
-      this.emit('print-started', { fileName });
+      this.emit('print-started', { fileName, ad5xParams });
     }
 
+    res.json(this.#success());
+  });
+
+  /**
+   * POST /deleteGcode - Delete a G-code file
+   */
+  #handleDeleteGcode = this.#withAuth((req: Request, res: Response): void => {
+    const body = req.body as AuthenticatedRequest;
+    const fileName = body.fileName;
+
+    if (!fileName) {
+      res.json(this.#error(ResponseCode.InvalidParameter, 'Invalid parameter'));
+      return;
+    }
+
+    const file = printerStateStore.getFile(fileName);
+    if (!file) {
+      res.json(this.#error(ResponseCode.NotFound, 'Not found'));
+      return;
+    }
+
+    // Remove file from state
+    printerStateStore.removeFile(fileName);
+    this.emit('file-deleted', { fileName });
     res.json(this.#success());
   });
 

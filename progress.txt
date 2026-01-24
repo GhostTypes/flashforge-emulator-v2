@@ -1,0 +1,40 @@
+# Progress Log
+
+Final Gap Closure Sprint - Started 2026-01-23
+Branch: feature/emulator-gap-closures
+
+## Incomplete Tasks (6 total)
+
+### Priority 1 (Critical)
+- [x] P1-01: Fix field name: coolingLeftFanSpeed → coolingFanLeftSpeed
+- [x] P1-02: Fix nozzleCount for AD5X (should be 2, not 1)
+- [x] P1-03: Fix machineName for AD5X detection
+- [x] P1-04: Make left extruder fields AD5X-only
+- [x] P1-05: Populate gcodeListDetail with actual file metadata
+- [x] P1-06: Fix M105 temperature response format
+- [x] P1-07: Fix MAC address format (don't strip colons)
+
+### Priority 2 (High)
+- [x] P2-01: Add G91 relative positioning command
+- [x] P2-02: Fix indepMatlInfo structure
+- [x] P2-03: Add measure field to /detail response
+- [x] P2-04: Use extracted thumbnail for TCP M662
+- [x] P2-05: Persist speed parameter in printerCtl_cmd
+- [x] P2-06: Add heating state transition on temperature changes
+- [x] P2-07: Omit hasMatlStation for non-AD5X models
+
+## Completed Tasks
+- [x] P1-01: Fixed field name in HttpServer.ts line 449 to match production API (coolingFanLeftSpeed)
+- [x] P1-02: Fixed nozzleCount in PrinterStateStore.ts line 121 to report 2 for AD5X, 1 for other models
+- [x] P1-03: Fixed machineName in PrinterStateStore.ts line 117 to return 'AD5X' for material station models, enabling proper detection by production API
+- [x] P1-04: Moved hasLeftFilament, leftFilamentType, leftTemp, leftTargetTemp into AD5X conditional block in HttpServer.ts, preventing these fields from being returned for single-extruder models
+- [x] P1-05: Populated gcodeListDetail in HttpServer.ts with actual file metadata from PrinterFile objects, including gcodeFileName, gcodeToolCnt, gcodeToolDatas, printingTime, totalFilamentWeight, and useMatlStation
+- [x] P1-06: Fixed M105 temperature response format in TcpServer.ts to match production API: removed decimal places from temperatures using toFixed(0), added @:0 field (nozzle heater PWM), added B@:0 field (bed heater PWM)
+- [x] P1-07: Fixed MAC address format in HttpServer.ts line 468 to preserve colons, matching production printer format "88:A9:A7:9D:2A:70"
+- [x] P2-01: Added G91 relative positioning command handler in TcpServer.ts, sets positioningMode to 'relative' and returns ok response, matching production printer behavior
+- [x] P2-02: Fixed indepMatlInfo structure in HttpServer.ts to match production API by removing currentLoadSlot and currentSlot fields, now only contains materialColor, materialName, stateAction, and stateStep as defined in ff-5mp-api-ts
+- [x] P2-03: Added measure field to /detail response in HttpServer.ts with format buildVolume.x X buildVolume.y X buildVolume.z (e.g., "220X220X220"), matching production printer API
+- [x] P2-04: Updated TCP M662 handler in TcpServer.ts to use file.thumbnail property instead of hardcoded PNG, with fallback to placeholder if thumbnail is empty
+- [x] P2-05: Added updatePrintSpeed method to PrinterStateStore and updated HttpServer.ts printerCtl_cmd handler to persist speed parameter to state when received via HTTP API, matching production printer behavior
+- [x] P2-06: Added heating state transition logic to HttpServer.ts temperatureCtl_cmd handler, transitions to 'heating' state when new target temperatures exceed current temperatures and printer is idle, matching real printer behavior
+- [x] P2-07: Removed hasMatlStation field from /detail response for non-AD5X models in HttpServer.ts, now only AD5X models include material station related fields, matching production printer behavior

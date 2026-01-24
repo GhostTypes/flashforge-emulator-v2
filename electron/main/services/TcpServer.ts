@@ -312,12 +312,15 @@ export class TcpServer extends EventEmitter {
    * Handles a command and returns the response
    */
   #handleCommand(client: TcpClient, command: string): string | null {
+    // Strip tilde prefix if present (many commands use ~ prefix)
+    const normalizedCommand = command.startsWith('~') ? command.slice(1) : command;
+
     // Handshake commands
-    if (command === 'M601') {
+    if (normalizedCommand === 'M601' || normalizedCommand === 'M601 S1') {
       return this.#handleM601(client);
     }
 
-    if (command === 'M602') {
+    if (normalizedCommand === 'M602') {
       return this.#handleM602(client);
     }
 
@@ -327,65 +330,116 @@ export class TcpServer extends EventEmitter {
     }
 
     // Information commands
-    if (command === 'M115' || command === '~M115') {
+    if (normalizedCommand === 'M115') {
       return this.#handleM115();
     }
 
-    if (command === 'M105' || command === '~M105') {
+    if (normalizedCommand === 'M105') {
       return this.#handleM105();
     }
 
-    if (command === 'M119' || command === '~M119') {
+    if (normalizedCommand === 'M119') {
       return this.#handleM119();
     }
 
-    if (command === 'M114' || command === '~M114') {
+    if (normalizedCommand === 'M114') {
       return this.#handleM114();
     }
 
-    if (command === 'M27' || command === '~M27') {
+    if (normalizedCommand === 'M27') {
       return this.#handleM27();
     }
 
-    if (command === 'M661' || command === '~M661') {
-      return this.#handleM661();
+    if (normalizedCommand === 'M661') {
+      // M661 is async - we handle it differently
+      this.#handleM661(client);
+      return null;
     }
 
-    if (command.startsWith('M662 ') || command.startsWith('~M662 ')) {
-      return this.#handleM662(command);
+    if (normalizedCommand.startsWith('M662 ')) {
+      // M662 is async - we handle it differently
+      this.#handleM662(client, command);
+      return null;
     }
 
     // Control commands
-    if (command === 'G28' || command === '~G28') {
+    if (normalizedCommand === 'G28') {
       return this.#handleG28();
     }
 
-    if (command.startsWith('M23 ')) {
+    if (normalizedCommand === 'G90') {
+      return this.#handleG90();
+    }
+
+    if (normalizedCommand === 'G91') {
+      return this.#handleG91();
+    }
+
+    if (normalizedCommand.startsWith('G1 ')) {
+      return this.#handleG1(command);
+    }
+
+    if (normalizedCommand.startsWith('M23 ')) {
       return this.#handleM23(command);
     }
 
-    if (command === 'M24' || command === '~M24') {
+    if (normalizedCommand === 'M24') {
       return this.#handleM24();
     }
 
-    if (command === 'M25' || command === '~M25') {
+    if (normalizedCommand === 'M25') {
       return this.#handleM25();
     }
 
-    if (command === 'M26' || command === '~M26') {
+    if (normalizedCommand === 'M26') {
       return this.#handleM26();
     }
 
-    if (command.startsWith('M104 ')) {
+    if (normalizedCommand.startsWith('M104 ')) {
       return this.#handleM104(command);
     }
 
-    if (command.startsWith('M140 ')) {
+    if (normalizedCommand.startsWith('M109 ')) {
+      // M109 is async - we handle it differently
+      this.#handleM109(client, command);
+      return null;
+    }
+
+    if (normalizedCommand.startsWith('M140 ')) {
       return this.#handleM140(command);
     }
 
-    if (command.startsWith('M146 ')) {
+    if (normalizedCommand.startsWith('M190 ')) {
+      // M190 is async - we handle it differently
+      this.#handleM190(client, command);
+      return null;
+    }
+
+    if (normalizedCommand.startsWith('M191 ')) {
+      // M191 is async - we handle it differently
+      this.#handleM191(client, command);
+      return null;
+    }
+
+    if (normalizedCommand.startsWith('M146 ')) {
       return this.#handleM146(command);
+    }
+
+    if (normalizedCommand === 'M405') {
+      return this.#handleM405();
+    }
+
+    if (normalizedCommand === 'M406') {
+      return this.#handleM406();
+    }
+
+    if (normalizedCommand === 'M240') {
+      return this.#handleM240();
+    }
+
+    // Emergency stop (works even without control)
+    if (normalizedCommand === 'M112') {
+      return this.#handleM112();
     }
 
     // Unknown command - return ok anyway (printer behavior)
@@ -445,7 +499,7 @@ export class TcpServer extends EventEmitter {
     return new ResponseBuilder()
       .cmdReceived('M105')
       .addLine(
-        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}`
+        `T0:${temp.nozzleCurrent.toFixed(0)}/${temp.nozzleTarget.toFixed(0)} T1:${temp.leftNozzleCurrent.toFixed(0)}/${temp.leftNozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(0)}/${temp.bedTarget.toFixed(0)} @:0 B@:0`
       )
       .build();
   }
@@ -463,10 +517,13 @@ export class TcpServer extends EventEmitter {
       ready: 'READY',
       busy: 'BUSY',
       printing: 'BUILDING_FROM_SD',
+      pausing: 'PAUSED', // Transition state before fully paused
       paused: 'PAUSED',
+      cancel: 'BUSY', // Canceling is an active operation
       completed: 'BUILDING_COMPLETED',
       heating: 'BUSY',
       error: 'READY',
+      calibrate_doing: 'BUSY', // Calibration is an active operation
     };
 
     const machineStatus = statusMap[state.machineStatus] ?? 'READY';
@@ -488,6 +545,7 @@ export class TcpServer extends EventEmitter {
 
   /**
    * M114 - Get current position
+   * Uses A: and B: for dual extruders (matches FlashForge protocol)
    */
   #handleM114(): string {
     const pos = printerStateStore.state.position;
@@ -495,7 +553,7 @@ export class TcpServer extends EventEmitter {
     return new ResponseBuilder()
       .cmdReceived('M114')
       .addLine(
-        `X:${pos.x.toFixed(3)} Y:${pos.y.toFixed(3)} Z:${pos.z.toFixed(3)} E:${pos.e.toFixed(3)}`
+        `X:${pos.x.toFixed(3)} Y:${pos.y.toFixed(3)} Z:${pos.z.toFixed(3)} A:${pos.e.toFixed(3)} B:0.000`
       )
       .build();
   }
@@ -516,22 +574,31 @@ export class TcpServer extends EventEmitter {
 
   /**
    * M661 - Get local file list
+   * Sends ok immediately, then file list after delay (matches real printer behavior)
    */
-  #handleM661(): string {
+  #handleM661(client: TcpClient): void {
     const files = printerStateStore.getFiles();
     const fileNames = files.map((f) => `/data/${f.name}`).join('::');
 
-    return new ResponseBuilder().cmdReceived('M661').build() + fileNames;
+    // Send ok immediately
+    client.socket.write(new ResponseBuilder().cmdReceived('M661').build(), 'utf-8');
+
+    // Send file list after 500ms delay
+    setTimeout(() => {
+      client.socket.write(fileNames, 'utf-8');
+    }, 500);
   }
 
   /**
    * M662 - Get file thumbnail
+   * Sends ok immediately, then binary PNG data after delay
    */
-  #handleM662(command: string): string {
+  #handleM662(client: TcpClient, command: string): void {
     // Extract file path from command
     const match = command.match(/M662\s+(.+)/);
     if (!match?.[1]) {
-      return ResponseBuilder.error('Invalid M662 command');
+      client.socket.write(ResponseBuilder.error('Invalid M662 command'), 'utf-8');
+      return;
     }
 
     const filePath = match[1].trim();
@@ -539,11 +606,22 @@ export class TcpServer extends EventEmitter {
     const file = printerStateStore.getFile(fileName);
 
     if (!file) {
-      return ResponseBuilder.error('File not found');
+      client.socket.write(ResponseBuilder.error('File not found'), 'utf-8');
+      return;
     }
 
-    // Return empty PNG for now (should be replaced with actual thumbnail)
-    return new ResponseBuilder().cmdReceived('M662').build();
+    // Send ok immediately
+    client.socket.write(new ResponseBuilder().cmdReceived('M662').build(), 'utf-8');
+
+    // Send binary PNG data after delay
+    setTimeout(() => {
+      // Use extracted thumbnail from file, or fallback to placeholder
+      const pngBase64 =
+        file.thumbnail ||
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+      const pngBuffer = Buffer.from(pngBase64, 'base64');
+      client.socket.write(pngBuffer);
+    }, 500);
   }
 
   /**
@@ -552,6 +630,71 @@ export class TcpServer extends EventEmitter {
   #handleG28(): string {
     printerStateStore.homeAxes('all');
     return new ResponseBuilder().cmdReceived('G28').build();
+  }
+
+  /**
+   * G90 - Set absolute positioning
+   * Sets the positioning mode to absolute (coordinates are from origin)
+   */
+  #handleG90(): string {
+    printerStateStore.setPositioningMode('absolute');
+    return new ResponseBuilder().cmdReceived('G90').build();
+  }
+
+  /**
+   * G91 - Set relative positioning
+   * Sets the positioning mode to relative (coordinates are offsets from current position)
+   */
+  #handleG91(): string {
+    printerStateStore.setPositioningMode('relative');
+    return new ResponseBuilder().cmdReceived('G91').build();
+  }
+
+  /**
+   * G1 - Move to coordinates
+   * Parses X, Y, Z, E parameters and updates position state
+   * Supports both absolute (G90) and relative (G91) positioning modes
+   */
+  #handleG1(command: string): string {
+    const state = printerStateStore.state;
+    const isAbsolute = state.position.positioningMode === 'absolute';
+
+    const positionUpdate: { x?: number; y?: number; z?: number; e?: number } = {};
+
+    // Parse X coordinate
+    const xMatch = command.match(/X(-?\d+\.?\d*)/);
+    if (xMatch?.[1]) {
+      const value = Number.parseFloat(xMatch[1]);
+      positionUpdate.x = isAbsolute ? value : state.position.x + value;
+    }
+
+    // Parse Y coordinate
+    const yMatch = command.match(/Y(-?\d+\.?\d*)/);
+    if (yMatch?.[1]) {
+      const value = Number.parseFloat(yMatch[1]);
+      positionUpdate.y = isAbsolute ? value : state.position.y + value;
+    }
+
+    // Parse Z coordinate
+    const zMatch = command.match(/Z(-?\d+\.?\d*)/);
+    if (zMatch?.[1]) {
+      const value = Number.parseFloat(zMatch[1]);
+      positionUpdate.z = isAbsolute ? value : state.position.z + value;
+    }
+
+    // Parse E (extruder) coordinate
+    const eMatch = command.match(/E(-?\d+\.?\d*)/);
+    if (eMatch?.[1]) {
+      const value = Number.parseFloat(eMatch[1]);
+      positionUpdate.e = isAbsolute ? value : state.position.e + value;
+    }
+
+    // Update position if any parameters were found
+    if (Object.keys(positionUpdate).length > 0) {
+      printerStateStore.updatePosition(positionUpdate);
+    }
+
+    return new ResponseBuilder().cmdReceived('G1').build();
   }
 
   /**
@@ -615,6 +758,45 @@ export class TcpServer extends EventEmitter {
   }
 
   /**
+   * M109 - Set extruder temperature and wait
+   * Sets the target nozzle temperature and waits until it's reached before returning ok
+   */
+  #handleM109(client: TcpClient, command: string): void {
+    const match = command.match(/M109\s+S(\d+)/);
+    if (!match?.[1]) {
+      client.socket.write(ResponseBuilder.error('Invalid M109 command'), 'utf-8');
+      return;
+    }
+
+    const targetTemp = Number.parseInt(match[1], 10);
+    printerStateStore.setTargetTemperatures(
+      targetTemp,
+      printerStateStore.state.temperature.bedTarget
+    );
+
+    // Send initial acknowledgment
+    client.socket.write(new ResponseBuilder().cmdReceived('M109').addLine('wait').build(), 'utf-8');
+
+    // Poll until temperature reaches target (within 2 degrees)
+    const checkInterval = setInterval(() => {
+      const temp = printerStateStore.state.temperature;
+      const diff = Math.abs(temp.nozzleCurrent - targetTemp);
+
+      // Send temperature updates while waiting
+      client.socket.write(
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`,
+        'utf-8'
+      );
+
+      if (diff <= 2) {
+        // Temperature reached - send final ok
+        clearInterval(checkInterval);
+        client.socket.write('ok\n', 'utf-8');
+      }
+    }, 500); // Check every 500ms
+  }
+
+  /**
    * M140 - Set bed temperature
    */
   #handleM140(command: string): string {
@@ -626,6 +808,79 @@ export class TcpServer extends EventEmitter {
     const temp = Number.parseInt(match[1], 10);
     printerStateStore.setTargetTemperatures(printerStateStore.state.temperature.nozzleTarget, temp);
     return new ResponseBuilder().cmdReceived('M140').build();
+  }
+
+  /**
+   * M190 - Set bed temperature and wait
+   * Sets the target bed temperature and waits until it's reached before returning ok
+   */
+  #handleM190(client: TcpClient, command: string): void {
+    const match = command.match(/M190\s+S(\d+)/);
+    if (!match?.[1]) {
+      client.socket.write(ResponseBuilder.error('Invalid M190 command'), 'utf-8');
+      return;
+    }
+
+    const targetTemp = Number.parseInt(match[1], 10);
+    printerStateStore.setTargetTemperatures(
+      printerStateStore.state.temperature.nozzleTarget,
+      targetTemp
+    );
+
+    // Send initial acknowledgment
+    client.socket.write(new ResponseBuilder().cmdReceived('M190').addLine('wait').build(), 'utf-8');
+
+    // Poll until temperature reaches target (within 2 degrees)
+    const checkInterval = setInterval(() => {
+      const temp = printerStateStore.state.temperature;
+      const diff = Math.abs(temp.bedCurrent - targetTemp);
+
+      // Send temperature updates while waiting
+      client.socket.write(
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`,
+        'utf-8'
+      );
+
+      if (diff <= 2) {
+        // Temperature reached - send final ok
+        clearInterval(checkInterval);
+        client.socket.write('ok\n', 'utf-8');
+      }
+    }, 500); // Check every 500ms
+  }
+
+  /**
+   * M191 - Wait for bed cooling
+   * Waits until the bed temperature drops below the specified value before returning ok
+   */
+  #handleM191(client: TcpClient, command: string): void {
+    const match = command.match(/M191\s+S(\d+)/);
+    if (!match?.[1]) {
+      client.socket.write(ResponseBuilder.error('Invalid M191 command'), 'utf-8');
+      return;
+    }
+
+    const targetTemp = Number.parseInt(match[1], 10);
+
+    // Send initial acknowledgment
+    client.socket.write(new ResponseBuilder().cmdReceived('M191').addLine('wait').build(), 'utf-8');
+
+    // Poll until bed temperature drops below target
+    const checkInterval = setInterval(() => {
+      const temp = printerStateStore.state.temperature;
+
+      // Send temperature updates while waiting
+      client.socket.write(
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`,
+        'utf-8'
+      );
+
+      if (temp.bedCurrent <= targetTemp) {
+        // Temperature cooled below target - send final ok
+        clearInterval(checkInterval);
+        client.socket.write('ok\n', 'utf-8');
+      }
+    }, 500); // Check every 500ms
   }
 
   /**
@@ -645,6 +900,43 @@ export class TcpServer extends EventEmitter {
     printerStateStore.updateLed(enabled, red, green, blue);
 
     return new ResponseBuilder().cmdReceived('M146').build();
+  }
+
+  /**
+   * M112 - Emergency stop
+   * Immediately stops any print in progress and sets status to idle
+   */
+  #handleM112(): string {
+    printerStateStore.stopPrint();
+    printerStateStore.setMachineStatus('idle');
+    return new ResponseBuilder().cmdReceived('M112').build();
+  }
+
+  /**
+   * M405 - Enable filament runout sensor
+   * Enables the runout sensor detection (5M Pro only)
+   */
+  #handleM405(): string {
+    printerStateStore.setRunoutSensorEnabled(true);
+    return new ResponseBuilder().cmdReceived('M405').build();
+  }
+
+  /**
+   * M406 - Disable filament runout sensor
+   * Disables the runout sensor detection
+   */
+  #handleM406(): string {
+    printerStateStore.setRunoutSensorEnabled(false);
+    return new ResponseBuilder().cmdReceived('M406').build();
+  }
+
+  /**
+   * M240 - Take picture with camera
+   * Camera command (5M Pro has built-in camera, emulator just acknowledges)
+   */
+  #handleM240(): string {
+    // No actual camera in emulator - just acknowledge the command
+    return new ResponseBuilder().cmdReceived('M240').build();
   }
 
   /**

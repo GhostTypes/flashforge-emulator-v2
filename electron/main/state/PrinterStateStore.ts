@@ -31,7 +31,8 @@ export type StateChangeEvent =
   | 'state-changed'
   | 'temperature-changed'
   | 'position-changed'
-  | 'job-changed';
+  | 'job-changed'
+  | 'cumulative-stats-changed';
 
 /**
  * Default temperature state
@@ -39,6 +40,8 @@ export type StateChangeEvent =
 const DEFAULT_TEMPERATURE: TemperatureState = {
   nozzleCurrent: 25,
   nozzleTarget: 0,
+  leftNozzleCurrent: 0,
+  leftNozzleTarget: 0,
   bedCurrent: 25,
   bedTarget: 0,
   chamberCurrent: 25,
@@ -66,7 +69,7 @@ function createDefaultState(model: PrinterModel): PrinterState {
     protocolMode: profile.protocolMode,
     machineStatus: 'idle',
     temperature: { ...DEFAULT_TEMPERATURE },
-    position: { x: 0, y: 0, z: 0, e: 0 },
+    position: { x: 0, y: 0, z: 0, e: 0, positioningMode: 'absolute' },
     printJob: {
       status: 'idle',
       currentFile: null,
@@ -97,6 +100,7 @@ function createDefaultState(model: PrinterModel): PrinterState {
     },
     fan: {
       coolingFanSpeed: 0,
+      coolingLeftFanSpeed: 0,
       chamberFanSpeed: 0,
       externalFanEnabled: false,
       internalFanEnabled: false,
@@ -110,15 +114,33 @@ function createDefaultState(model: PrinterModel): PrinterState {
     tcpControlActive: false,
     serialNumber: DEFAULT_CONFIG.serialNumber,
     checkCode: DEFAULT_CONFIG.checkCode,
-    machineName: `${profile.name} Emulator`,
+    machineName: profile.hasMaterialStation ? 'AD5X' : `${profile.name} Emulator`,
     firmwareVersion: profile.defaultFirmware,
     macAddress: '00:11:22:33:44:55',
     ipAddress: '192.168.1.100',
-    nozzleCount: 1,
+    nozzleCount: profile.hasMaterialStation ? 2 : 1,
     nozzleModel: '0.4mm',
     doorOpen: false,
     autoShutdown: 'close',
     autoShutdownTime: 30,
+    cumulativePrintTime: 0,
+    cumulativeFilament: 0,
+    estimatedRightLen: 0,
+    estimatedRightWeight: 0,
+    estimatedLeftLen: 0,
+    estimatedLeftWeight: 0,
+    hasLeftFilament: false,
+    hasRightFilament: true,
+    leftFilamentType: '',
+    rightFilamentType: 'PLA',
+    currentPrintSpeed: 100,
+    printSpeedAdjust: 100,
+    fillAmount: 0,
+    errorCode: '',
+    tvoc: 0,
+    zAxisCompensation: 0,
+    remainingDiskSpace: 1024,
+    runoutSensorEnabled: false,
   };
 }
 
@@ -191,6 +213,9 @@ export class PrinterStateStore extends EventEmitter {
     this.#state.serialNumber = this.#config.serialNumber;
     this.#state.checkCode = this.#config.checkCode;
     this.#state.machineName = `${profile.name} Emulator`;
+    // Load cumulative stats from config for persistence
+    this.#state.cumulativePrintTime = this.#config.cumulativePrintTime;
+    this.#state.cumulativeFilament = this.#config.cumulativeFilament;
     this.emit('state-changed', this.#state);
   }
 
@@ -219,6 +244,12 @@ export class PrinterStateStore extends EventEmitter {
     }
     if (config.simulationSpeed !== undefined) {
       this.#simulationSpeed = config.simulationSpeed;
+    }
+    if (config.cumulativePrintTime !== undefined) {
+      this.#state.cumulativePrintTime = config.cumulativePrintTime;
+    }
+    if (config.cumulativeFilament !== undefined) {
+      this.#state.cumulativeFilament = config.cumulativeFilament;
     }
 
     this.emit('state-changed', this.#state);
@@ -262,6 +293,7 @@ export class PrinterStateStore extends EventEmitter {
    */
   simulateTemperatures(): void {
     const temp = this.#state.temperature;
+    const profile = this.getProfile();
     let changed = false;
 
     // Nozzle heating/cooling
@@ -271,6 +303,17 @@ export class PrinterStateStore extends EventEmitter {
     } else if (temp.nozzleCurrent > temp.nozzleTarget) {
       temp.nozzleCurrent = Math.max(temp.nozzleTarget, temp.nozzleCurrent - 1);
       changed = true;
+    }
+
+    // Left nozzle heating/cooling (AD5X dual extrusion)
+    if (profile.hasMaterialStation) {
+      if (temp.leftNozzleCurrent < temp.leftNozzleTarget) {
+        temp.leftNozzleCurrent = Math.min(temp.leftNozzleTarget, temp.leftNozzleCurrent + 2);
+        changed = true;
+      } else if (temp.leftNozzleCurrent > temp.leftNozzleTarget) {
+        temp.leftNozzleCurrent = Math.max(temp.leftNozzleTarget, temp.leftNozzleCurrent - 1);
+        changed = true;
+      }
     }
 
     // Bed heating/cooling
@@ -310,12 +353,28 @@ export class PrinterStateStore extends EventEmitter {
    * Homes all axes (resets position to zero)
    */
   homeAxes(axes?: 'x' | 'y' | 'z' | 'all'): void {
+    const currentMode = this.#state.position.positioningMode;
     if (!axes || axes === 'all') {
-      this.#state.position = { x: 0, y: 0, z: 0, e: this.#state.position.e };
+      this.#state.position = {
+        x: 0,
+        y: 0,
+        z: 0,
+        e: this.#state.position.e,
+        positioningMode: currentMode,
+      };
     } else {
       this.#state.position[axes] = 0;
     }
     this.#state.endstops = { xMax: 1, yMax: 1, zMin: 1 };
+    this.emit('position-changed', this.#state.position);
+    this.emit('state-changed', this.#state);
+  }
+
+  /**
+   * Sets the positioning mode (absolute or relative)
+   */
+  setPositioningMode(mode: 'absolute' | 'relative'): void {
+    this.#state.position.positioningMode = mode;
     this.emit('position-changed', this.#state.position);
     this.emit('state-changed', this.#state);
   }
@@ -341,13 +400,24 @@ export class PrinterStateStore extends EventEmitter {
 
   /**
    * Pauses the current print job
+   * Transitions to 'pausing' state first, then 'paused' after 500ms delay
+   * to match real printer behavior
    */
   pausePrint(): void {
     if (this.#state.printJob.status === 'printing') {
-      this.#state.printJob.status = 'paused';
-      this.#state.machineStatus = 'paused';
+      // First transition to 'pausing' state
+      this.#state.printJob.status = 'pausing';
+      this.#state.machineStatus = 'pausing';
       this.emit('job-changed', this.#state.printJob);
       this.emit('state-changed', this.#state);
+
+      // Then transition to 'paused' after 500ms delay
+      setTimeout(() => {
+        this.#state.printJob.status = 'paused';
+        this.#state.machineStatus = 'paused';
+        this.emit('job-changed', this.#state.printJob);
+        this.emit('state-changed', this.#state);
+      }, 500);
     }
   }
 
@@ -381,6 +451,8 @@ export class PrinterStateStore extends EventEmitter {
     // Cool down
     this.#state.temperature.nozzleTarget = 0;
     this.#state.temperature.bedTarget = 0;
+    // Reset fan speed
+    this.#state.fan.coolingFanSpeed = 0;
     this.emit('job-changed', this.#state.printJob);
     this.emit('state-changed', this.#state);
   }
@@ -402,6 +474,8 @@ export class PrinterStateStore extends EventEmitter {
     if (job.status === 'heating' && tempsReady) {
       job.status = 'printing';
       this.#state.machineStatus = 'busy';
+      // Auto fan ramp-up when printing starts
+      this.#state.fan.coolingFanSpeed = 100;
     }
 
     if (job.status === 'printing') {
@@ -412,6 +486,25 @@ export class PrinterStateStore extends EventEmitter {
       job.estimatedTimeRemaining = Math.max(0, job.totalPrintTime - job.elapsedTime);
       job.currentLayer = Math.floor(job.progress * job.totalLayers);
 
+      // Update Z-axis position based on print progress
+      // Formula: (currentLayer / totalLayers) * 220 (max height in mm)
+      const maxHeight = 220;
+      if (job.totalLayers > 0) {
+        this.#state.position.z = (job.currentLayer / job.totalLayers) * maxHeight;
+      }
+
+      // Update E-axis (extruder) position based on progress
+      // Crude estimate: increment E by progress amount (simulating filament extrusion)
+      // Using ~1000mm total extrusion for typical print
+      const totalExtrusion = 1000;
+      this.#state.position.e = job.progress * totalExtrusion;
+
+      // Update filament estimates based on progress
+      // Crude estimate: 100g total, ~1000mm length per job (will be refined later)
+      const progressPercent = job.progress * 100;
+      this.#state.estimatedRightWeight = (progressPercent / 100) * 100; // 100g total
+      this.#state.estimatedRightLen = (progressPercent / 100) * 1000; // 1000mm total
+
       // Check if print is complete
       if (job.progress >= 1) {
         job.status = 'completed';
@@ -419,6 +512,18 @@ export class PrinterStateStore extends EventEmitter {
         // Cool down
         this.#state.temperature.nozzleTarget = 0;
         this.#state.temperature.bedTarget = 0;
+        // Reset fan speed
+        this.#state.fan.coolingFanSpeed = 0;
+
+        // Increment cumulative stats
+        this.#state.cumulativePrintTime += job.elapsedTime;
+        // Use crude estimate for filament: 100g per job (will be refined later)
+        this.#state.cumulativeFilament += 100;
+        // Emit cumulative stats changed event
+        this.emit('cumulative-stats-changed', {
+          cumulativePrintTime: this.#state.cumulativePrintTime,
+          cumulativeFilament: this.#state.cumulativeFilament,
+        });
       }
 
       this.emit('job-changed', job);
@@ -444,6 +549,7 @@ export class PrinterStateStore extends EventEmitter {
     settings: Partial<{
       coolingFanSpeed: number;
       chamberFanSpeed: number;
+      coolingLeftFanSpeed: number;
       externalFanEnabled: boolean;
       internalFanEnabled: boolean;
     }>
@@ -457,6 +563,30 @@ export class PrinterStateStore extends EventEmitter {
    */
   setTcpControlActive(active: boolean): void {
     this.#state.tcpControlActive = active;
+    this.emit('state-changed', this.#state);
+  }
+
+  /**
+   * Sets runout sensor enabled state (5M Pro only)
+   */
+  setRunoutSensorEnabled(enabled: boolean): void {
+    this.#state.runoutSensorEnabled = enabled;
+    this.emit('state-changed', this.#state);
+  }
+
+  /**
+   * Updates Z-axis compensation value
+   */
+  updateZAxisCompensation(value: number): void {
+    this.#state.zAxisCompensation = value;
+    this.emit('state-changed', this.#state);
+  }
+
+  /**
+   * Updates print speed percentage
+   */
+  updatePrintSpeed(speed: number): void {
+    this.#state.currentPrintSpeed = speed;
     this.emit('state-changed', this.#state);
   }
 

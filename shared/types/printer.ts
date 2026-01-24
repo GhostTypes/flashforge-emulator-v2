@@ -47,6 +47,10 @@ export interface TemperatureState {
   nozzleCurrent: number;
   /** Target nozzle temperature in Celsius */
   nozzleTarget: number;
+  /** Current left nozzle temperature in Celsius (AD5X only) */
+  leftNozzleCurrent: number;
+  /** Target left nozzle temperature in Celsius (AD5X only) */
+  leftNozzleTarget: number;
   /** Current bed temperature in Celsius */
   bedCurrent: number;
   /** Target bed temperature in Celsius */
@@ -56,6 +60,11 @@ export interface TemperatureState {
   /** Target chamber temperature in Celsius */
   chamberTarget: number;
 }
+
+/**
+ * Positioning mode for movement commands
+ */
+export type PositioningMode = 'absolute' | 'relative';
 
 /**
  * Printer position in 3D space
@@ -69,6 +78,8 @@ export interface PositionState {
   z: number;
   /** Extruder position in mm (E axis) */
   e: number;
+  /** Current positioning mode (absolute or relative) */
+  positioningMode: PositioningMode;
 }
 
 /**
@@ -117,6 +128,21 @@ export type MaterialSlotUpdate = {
 };
 
 /**
+ * Independent material info for AD5X /detail response
+ * Represents the currently loaded material in the active slot
+ */
+export interface IndepMatlInfo {
+  /** Material color as hex code */
+  materialColor: string;
+  /** Material name (e.g., "PLA", "PETG") */
+  materialName: string;
+  /** State action code */
+  stateAction: number;
+  /** State step code */
+  stateStep: number;
+}
+
+/**
  * Material station state (AD5X only)
  */
 export interface MaterialStationState {
@@ -152,6 +178,8 @@ export interface LedState {
 export interface FanState {
   /** Main cooling fan speed (0-100) */
   coolingFanSpeed: number;
+  /** Left cooling fan speed (0-100) - AD5X only */
+  coolingLeftFanSpeed: number;
   /** Chamber fan speed (0-100) */
   chamberFanSpeed: number;
   /** Whether external fan is on */
@@ -173,6 +201,22 @@ export interface EndstopState {
 }
 
 /**
+ * G-code tool data for multi-extruder prints (AD5X)
+ */
+export interface GcodeToolData {
+  /** Tool index (0 = right, 1 = left) */
+  toolIndex: number;
+  /** Filament type used (e.g., "PLA", "PETG") */
+  filamentType: string;
+  /** Filament color as hex code */
+  filamentColor: string;
+  /** Estimated filament length in mm */
+  filamentLen: number;
+  /** Estimated filament weight in grams */
+  filamentWeight: number;
+}
+
+/**
  * File entry in printer storage
  */
 export interface PrinterFile {
@@ -186,6 +230,16 @@ export interface PrinterFile {
   printTime: number;
   /** Whether this is a 3MF file */
   is3mf: boolean;
+  /** Number of tools/extruders used in the print (1-2 for AD5X) */
+  gcodeToolCnt: number;
+  /** Tool-specific data for multi-extruder prints */
+  gcodeToolDatas: GcodeToolData[];
+  /** Whether this print uses the material station */
+  useMatlStation: boolean;
+  /** Total filament weight in grams */
+  totalFilamentWeight: number;
+  /** Base64-encoded thumbnail PNG data */
+  thumbnail: string;
 }
 
 /**
@@ -238,6 +292,42 @@ export interface PrinterState {
   autoShutdown: 'open' | 'close';
   /** Auto shutdown time in minutes */
   autoShutdownTime: number;
+  /** Cumulative print time across all jobs in seconds */
+  cumulativePrintTime: number;
+  /** Cumulative filament used across all jobs in meters */
+  cumulativeFilament: number;
+  /** Estimated right filament length for current job in mm */
+  estimatedRightLen: number;
+  /** Estimated right filament weight for current job in grams */
+  estimatedRightWeight: number;
+  /** Estimated left filament length for current job in mm (AD5X only) */
+  estimatedLeftLen: number;
+  /** Estimated left filament weight for current job in grams (AD5X only) */
+  estimatedLeftWeight: number;
+  /** Whether filament is detected in left extruder (AD5X only) */
+  hasLeftFilament: boolean;
+  /** Whether filament is detected in right extruder */
+  hasRightFilament: boolean;
+  /** Left filament material type (e.g., "PLA", "PETG") */
+  leftFilamentType: string;
+  /** Right filament material type (e.g., "PLA", "PETG") */
+  rightFilamentType: string;
+  /** Current print speed percentage */
+  currentPrintSpeed: number;
+  /** Print speed adjustment percentage */
+  printSpeedAdjust: number;
+  /** Fill amount for infill (0-100) */
+  fillAmount: number;
+  /** Error code (empty string if no error) */
+  errorCode: string;
+  /** TVOC sensor reading */
+  tvoc: number;
+  /** Z-axis compensation value */
+  zAxisCompensation: number;
+  /** Remaining disk space in MB */
+  remainingDiskSpace: number;
+  /** Whether filament runout sensor is enabled (5M Pro only) */
+  runoutSensorEnabled: boolean;
 }
 
 /**
@@ -377,6 +467,10 @@ export interface EmulatorConfig {
   autoStart: boolean;
   /** Network interface for UDP discovery (empty = all interfaces) */
   discoveryInterface: string;
+  /** Cumulative print time in seconds (persists across sessions) */
+  cumulativePrintTime: number;
+  /** Cumulative filament used in meters (persists across sessions) */
+  cumulativeFilament: number;
 }
 
 /**
@@ -392,4 +486,6 @@ export const DEFAULT_CONFIG: EmulatorConfig = {
   simulationSpeed: 100,
   autoStart: false,
   discoveryInterface: '',
+  cumulativePrintTime: 0,
+  cumulativeFilament: 0,
 } as const;

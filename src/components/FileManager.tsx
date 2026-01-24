@@ -39,11 +39,16 @@ export const FileManager: FunctionComponent<FileManagerProps> = ({
     if (!file) return;
 
     const newFile: PrinterFile = {
-      name: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
+      name: file.name, // Preserve full filename with extension
       path: `/data/${file.name}`,
       size: file.size,
       printTime: 3600, // Default 1 hour
       is3mf: file.name.endsWith('.3mf'),
+      gcodeToolCnt: 1,
+      gcodeToolDatas: [],
+      useMatlStation: false,
+      totalFilamentWeight: 0,
+      thumbnail: '',
     };
 
     onAddFile(newFile);
@@ -66,6 +71,11 @@ export const FileManager: FunctionComponent<FileManagerProps> = ({
       size: Math.floor(Math.random() * 10000000) + 1000000,
       printTime: Math.floor(Math.random() * 7200) + 1800,
       is3mf: false,
+      gcodeToolCnt: 1,
+      gcodeToolDatas: [],
+      useMatlStation: false,
+      totalFilamentWeight: 0,
+      thumbnail: '',
     };
 
     onAddFile(newFile);
