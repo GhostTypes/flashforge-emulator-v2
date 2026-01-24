@@ -39,7 +39,7 @@ export const FileManager: FunctionComponent<FileManagerProps> = ({
     if (!file) return;
 
     const newFile: PrinterFile = {
-      name: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
+      name: file.name, // Preserve full filename with extension
       path: `/data/${file.name}`,
       size: file.size,
       printTime: 3600, // Default 1 hour

@@ -13331,8 +13331,8 @@ const FileManager = ({
     const file = event.target.files?.[0];
     if (!file) return;
     const newFile = {
-      name: file.name.replace(/\.[^/.]+$/, ""),
-      // Remove extension
+      name: file.name,
+      // Preserve full filename with extension
       path: `/data/${file.name}`,
       size: file.size,
       printTime: 3600,
