@@ -62,6 +62,11 @@ export interface TemperatureState {
 }
 
 /**
+ * Positioning mode for movement commands
+ */
+export type PositioningMode = 'absolute' | 'relative';
+
+/**
  * Printer position in 3D space
  */
 export interface PositionState {
@@ -73,6 +78,8 @@ export interface PositionState {
   z: number;
   /** Extruder position in mm (E axis) */
   e: number;
+  /** Current positioning mode (absolute or relative) */
+  positioningMode: PositioningMode;
 }
 
 /**
