@@ -668,8 +668,15 @@ export class HttpServer extends EventEmitter {
     const files = printerStateStore.getFiles();
     const fileNames = files.slice(0, 10).map((f) => f.name);
 
-    // Build gcodeListDetail array (empty for now as per PRD)
-    const gcodeListDetail: GcodeFileEntry[] = [];
+    // Build gcodeListDetail array with actual file metadata
+    const gcodeListDetail: GcodeFileEntry[] = files.slice(0, 10).map((file) => ({
+      gcodeFileName: file.name,
+      gcodeToolCnt: file.gcodeToolCnt,
+      gcodeToolDatas: file.gcodeToolDatas,
+      printingTime: file.printTime,
+      totalFilamentWeight: file.totalFilamentWeight,
+      useMatlStation: file.useMatlStation,
+    }));
 
     this.emit('response-sent', { path: '/gcodeList', count: fileNames.length });
     res.json({
