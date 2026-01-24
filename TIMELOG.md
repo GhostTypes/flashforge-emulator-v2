@@ -107,5 +107,6 @@ Tracking time spent on gap closure tasks.
 | Start | End | Task | Duration |
 |-------|-----|------|----------|
 | 2026-01-23T19:49:14-05:00 | 2026-01-23T19:49:57-05:00 | PH13-01: Fix FileManager file extension | ~1 minute |
+| 2026-01-23T19:50:51-05:00 | 2026-01-23T19:52:03-05:00 | PH13-02: Add /deleteGcode endpoint | ~1 minute |
 
 ---
