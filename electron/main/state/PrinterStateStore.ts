@@ -129,6 +129,10 @@ function createDefaultState(model: PrinterModel): PrinterState {
     estimatedRightWeight: 0,
     estimatedLeftLen: 0,
     estimatedLeftWeight: 0,
+    hasLeftFilament: false,
+    hasRightFilament: true,
+    leftFilamentType: '',
+    rightFilamentType: 'PLA',
   };
 }
 
