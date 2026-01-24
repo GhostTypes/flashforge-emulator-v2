@@ -421,6 +421,18 @@ export class TcpServer extends EventEmitter {
       return this.#handleM146(command);
     }
 
+    if (normalizedCommand === 'M405') {
+      return this.#handleM405();
+    }
+
+    if (normalizedCommand === 'M406') {
+      return this.#handleM406();
+    }
+
+    if (normalizedCommand === 'M240') {
+      return this.#handleM240();
+    }
+
     // Emergency stop (works even without control)
     if (normalizedCommand === 'M112') {
       return this.#handleM112();
@@ -881,6 +893,33 @@ export class TcpServer extends EventEmitter {
     printerStateStore.stopPrint();
     printerStateStore.setMachineStatus('idle');
     return new ResponseBuilder().cmdReceived('M112').build();
+  }
+
+  /**
+   * M405 - Enable filament runout sensor
+   * Enables the runout sensor detection (5M Pro only)
+   */
+  #handleM405(): string {
+    printerStateStore.setRunoutSensorEnabled(true);
+    return new ResponseBuilder().cmdReceived('M405').build();
+  }
+
+  /**
+   * M406 - Disable filament runout sensor
+   * Disables the runout sensor detection
+   */
+  #handleM406(): string {
+    printerStateStore.setRunoutSensorEnabled(false);
+    return new ResponseBuilder().cmdReceived('M406').build();
+  }
+
+  /**
+   * M240 - Take picture with camera
+   * Camera command (5M Pro has built-in camera, emulator just acknowledges)
+   */
+  #handleM240(): string {
+    // No actual camera in emulator - just acknowledge the command
+    return new ResponseBuilder().cmdReceived('M240').build();
   }
 
   /**
