@@ -66,6 +66,12 @@ interface ControlArgs extends Record<string, unknown> {
   action?: string;
   internal?: string;
   external?: string;
+  platformTemp?: number;
+  rightTemp?: number;
+  leftTemp?: number;
+  chamberTemp?: number;
+  zAxisCompensation?: number;
+  coolingLeftFan?: number;
 }
 
 /**
@@ -560,6 +566,12 @@ export class HttpServer extends EventEmitter {
         if (typeof args?.coolingFan === 'number') {
           printerStateStore.updateFan({ coolingFanSpeed: args.coolingFan });
         }
+        if (typeof args?.zAxisCompensation === 'number') {
+          printerStateStore.updateZAxisCompensation(args.zAxisCompensation);
+        }
+        if (typeof args?.coolingLeftFan === 'number') {
+          printerStateStore.updateFan({ coolingLeftFanSpeed: args.coolingLeftFan });
+        }
         this.emit('command-executed', { cmd, args });
         break;
       }
@@ -605,6 +617,24 @@ export class HttpServer extends EventEmitter {
           if (printerStateStore.state.machineStatus === 'completed') {
             printerStateStore.setMachineStatus('idle');
           }
+        }
+        this.emit('command-executed', { cmd, args });
+        break;
+      }
+
+      case 'temperatureCtl_cmd': {
+        // Handle temperature control commands
+        if (typeof args?.platformTemp === 'number') {
+          printerStateStore.updateTemperature({ bedTarget: args.platformTemp });
+        }
+        if (typeof args?.rightTemp === 'number') {
+          printerStateStore.updateTemperature({ nozzleTarget: args.rightTemp });
+        }
+        if (typeof args?.leftTemp === 'number') {
+          printerStateStore.updateTemperature({ leftNozzleTarget: args.leftTemp });
+        }
+        if (typeof args?.chamberTemp === 'number') {
+          printerStateStore.updateTemperature({ chamberTarget: args.chamberTemp });
         }
         this.emit('command-executed', { cmd, args });
         break;
