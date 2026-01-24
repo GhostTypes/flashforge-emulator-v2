@@ -46,4 +46,9 @@ Tracking time spent on gap closure tasks.
 | 2026-01-23T19:08:21-05:00 | 2026-01-23T19:09:00-05:00 | PH4-03: Calculate filament estimates during print | ~1 minute |
 | 2026-01-23T19:10:01-05:00 | 2026-01-23T19:10:28-05:00 | PH4-04: Return filament estimates in /detail | ~1 minute |
 
+### 2026-01-23 - Phase 5 Tasks
+| Start | End | Task | Duration |
+|-------|-----|------|----------|
+| 2026-01-23T19:11:37-05:00 | 2026-01-23T19:12:16-05:00 | PH5-01: Add left extruder temps to TemperatureState | ~1 minute |
+
 ---
