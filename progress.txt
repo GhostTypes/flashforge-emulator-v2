@@ -242,6 +242,11 @@
   - Formula: (currentLayer / totalLayers) * 220 (max height in mm)
   - Z position updates automatically as print progresses through layers
   - File: electron/main/state/PrinterStateStore.ts (lines ~474-479)
+- [x] PH12-02: Implement E-axis updates during print
+  - Added E-axis (extruder) position updates to simulatePrintProgress
+  - Formula: progress * 1000 (total extrusion in mm)
+  - E position increases as print progresses, simulating filament extrusion
+  - File: electron/main/state/PrinterStateStore.ts (lines ~481-485)
 
 [... remaining phases not started ...]
 

@@ -478,6 +478,12 @@ export class PrinterStateStore extends EventEmitter {
         this.#state.position.z = (job.currentLayer / job.totalLayers) * maxHeight;
       }
 
+      // Update E-axis (extruder) position based on progress
+      // Crude estimate: increment E by progress amount (simulating filament extrusion)
+      // Using ~1000mm total extrusion for typical print
+      const totalExtrusion = 1000;
+      this.#state.position.e = job.progress * totalExtrusion;
+
       // Update filament estimates based on progress
       // Crude estimate: 100g total, ~1000mm length per job (will be refined later)
       const progressPercent = job.progress * 100;
