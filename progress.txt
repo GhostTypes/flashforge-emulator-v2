@@ -108,6 +108,10 @@
   - Only simulates when profile.hasMaterialStation is true (AD5X)
   - Mirrors right nozzle behavior with +/- 2 degree heating/cooling
   - File: electron/main/state/PrinterStateStore.ts (lines ~296-305)
+- [x] PH5-04: Return left temps in /detail
+  - Changed leftTargetTemp and leftTemp from hardcoded 0 to state values
+  - Now returns state.temperature.leftNozzleTarget and state.temperature.leftNozzleCurrent
+  - File: electron/main/services/HttpServer.ts (lines ~403-404)
 
 [... remaining phases not started ...]
 
