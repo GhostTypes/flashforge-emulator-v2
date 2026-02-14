@@ -789,7 +789,7 @@ export class HttpServer extends EventEmitter {
     // Parse AD5X headers
     const flowCalibration = req.headers['flowcalibration'] === 'true';
     const useMatlStation = req.headers['usematlstation'] === 'true';
-    const gcodeToolCnt = Number.parseInt(req.headers['gcodeltoolcnt'] as string, 10) || 0;
+    const gcodeToolCnt = Number.parseInt(req.headers['gcodetoolcnt'] as string, 10) || 0;
 
     // Base64 decode materialMappings if present
     let materialMappings: unknown[] = [];
