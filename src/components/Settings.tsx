@@ -12,6 +12,8 @@ import { Check, Loader2, Radio, RefreshCw } from 'lucide-react';
 import type { FunctionComponent } from 'react';
 import { useEffect, useState } from 'react';
 import { getPrinterModels, getPrinterProfile } from '../hooks/useEmulatorState';
+import { NumberInput } from './NumberInput';
+import { Slider } from './Slider';
 
 interface SettingsProps {
   /** Current configuration */
@@ -134,14 +136,13 @@ export const Settings: FunctionComponent<SettingsProps> = ({
             <label htmlFor="tcpPort" className="mb-1.5 block text-sm text-neutral-400">
               TCP Port
             </label>
-            <input
+            <NumberInput
               id="tcpPort"
-              type="number"
               value={config.tcpPort}
-              onChange={(e) =>
-                onConfigChange({ ...config, tcpPort: Number.parseInt(e.target.value, 10) || 8899 })
+              onValueChange={(val) =>
+                onConfigChange({ ...config, tcpPort: Math.floor(val) || 8899 })
               }
-              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              className="w-full"
             />
           </div>
 
@@ -150,17 +151,16 @@ export const Settings: FunctionComponent<SettingsProps> = ({
             <label htmlFor="httpPort" className="mb-1.5 block text-sm text-neutral-400">
               HTTP Port
             </label>
-            <input
+            <NumberInput
               id="httpPort"
-              type="number"
               value={config.httpPort}
-              onChange={(e) =>
+              onValueChange={(val) =>
                 onConfigChange({
                   ...config,
-                  httpPort: Number.parseInt(e.target.value, 10) || 8898,
+                  httpPort: Math.floor(val) || 8898,
                 })
               }
-              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              className="w-full"
             />
           </div>
 
@@ -257,20 +257,19 @@ export const Settings: FunctionComponent<SettingsProps> = ({
             <label htmlFor="discCommandPort" className="mb-1.5 block text-sm text-neutral-400">
               Command Port
             </label>
-            <input
+            <NumberInput
               id="discCommandPort"
-              type="number"
               value={config.discoveryConfig?.commandPort ?? 8899}
-              onChange={(e) =>
+              onValueChange={(val) =>
                 onConfigChange({
                   ...config,
                   discoveryConfig: {
                     ...config.discoveryConfig,
-                    commandPort: Number.parseInt(e.target.value, 10) || 0,
+                    commandPort: Math.floor(val) || 0,
                   },
                 })
               }
-              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              className="w-full"
             />
           </div>
 
@@ -279,20 +278,19 @@ export const Settings: FunctionComponent<SettingsProps> = ({
             <label htmlFor="discHttpPort" className="mb-1.5 block text-sm text-neutral-400">
               HTTP/Event/Camera Port
             </label>
-            <input
+            <NumberInput
               id="discHttpPort"
-              type="number"
               value={config.discoveryConfig?.httpPort ?? 8898}
-              onChange={(e) =>
+              onValueChange={(val) =>
                 onConfigChange({
                   ...config,
                   discoveryConfig: {
                     ...config.discoveryConfig,
-                    httpPort: Number.parseInt(e.target.value, 10) || 0,
+                    httpPort: Math.floor(val) || 0,
                   },
                 })
               }
-              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              className="w-full"
             />
           </div>
 
@@ -301,20 +299,19 @@ export const Settings: FunctionComponent<SettingsProps> = ({
             <label htmlFor="discLegacyPort2" className="mb-1.5 block text-sm text-neutral-400">
               Legacy Port 2
             </label>
-            <input
+            <NumberInput
               id="discLegacyPort2"
-              type="number"
               value={config.discoveryConfig?.legacyPort2 ?? 8}
-              onChange={(e) =>
+              onValueChange={(val) =>
                 onConfigChange({
                   ...config,
                   discoveryConfig: {
                     ...config.discoveryConfig,
-                    legacyPort2: Number.parseInt(e.target.value, 10) || 0,
+                    legacyPort2: Math.floor(val) || 0,
                   },
                 })
               }
-              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+              className="w-full"
             />
           </div>
 
@@ -444,19 +441,19 @@ export const Settings: FunctionComponent<SettingsProps> = ({
             <label htmlFor="simSpeed" className="mb-1.5 block text-sm text-neutral-400">
               Simulation Speed ({config.simulationSpeed}x)
             </label>
-            <input
+            <Slider
               id="simSpeed"
-              type="range"
-              min="1"
-              max="500"
-              value={config.simulationSpeed}
-              onChange={(e) =>
+              min={1}
+              max={500}
+              value={[config.simulationSpeed]}
+              onValueChange={([val]) =>
+                val !== undefined &&
                 onConfigChange({
                   ...config,
-                  simulationSpeed: Number.parseInt(e.target.value, 10),
+                  simulationSpeed: val,
                 })
               }
-              className="w-full"
+              className="w-full mt-2"
             />
           </div>
         </div>

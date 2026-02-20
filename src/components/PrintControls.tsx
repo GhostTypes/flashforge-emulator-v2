@@ -24,6 +24,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { type ElementType, type FunctionComponent, useEffect, useState } from 'react';
+import { NumberInput } from './NumberInput';
+import { Slider } from './Slider';
 
 interface SimulationState {
   mode: SimulationMode;
@@ -198,13 +200,12 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
             {simulation.mode === 'auto' && (
               <div className="flex items-center gap-3 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2">
                 <span className="text-xs text-neutral-400">Speed:</span>
-                <input
-                  type="range"
-                  min="1"
-                  max="500"
-                  value={simulation.speed}
-                  onChange={(e) => handleSetSimulationSpeed(Number.parseInt(e.target.value, 10))}
-                  className="w-24 accent-primary-500"
+                <Slider
+                  min={1}
+                  max={500}
+                  value={[simulation.speed]}
+                  onValueChange={([val]) => val !== undefined && handleSetSimulationSpeed(val)}
+                  className="w-32 shrink-0 mx-2"
                 />
                 <span className="text-sm font-medium text-neutral-300">{simulation.speed}x</span>
               </div>
@@ -295,22 +296,20 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
                 Nozzle Target ({nozzleTarget}°C)
               </label>
               <div className="flex gap-2">
-                <input
+                <Slider
                   id="nozzleTemp"
-                  type="range"
-                  min="0"
-                  max="300"
-                  value={nozzleTarget}
-                  onChange={(e) => setNozzleTarget(Number.parseInt(e.target.value, 10))}
+                  min={0}
+                  max={300}
+                  value={[nozzleTarget]}
+                  onValueChange={([val]) => val !== undefined && setNozzleTarget(val)}
                   className="flex-1"
                 />
-                <input
-                  type="number"
-                  min="0"
-                  max="300"
+                <NumberInput
+                  min={0}
+                  max={300}
                   value={nozzleTarget}
-                  onChange={(e) => setNozzleTarget(Number.parseInt(e.target.value, 10) || 0)}
-                  className="w-20 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100 text-center focus:border-primary-500 focus:outline-none"
+                  onValueChange={(val) => setNozzleTarget(Math.floor(val) || 0)}
+                  className="w-20"
                 />
               </div>
               <p className="mt-1 text-xs text-neutral-600">
@@ -323,22 +322,20 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
                 Bed Target ({bedTarget}°C)
               </label>
               <div className="flex gap-2">
-                <input
+                <Slider
                   id="bedTemp"
-                  type="range"
-                  min="0"
-                  max="120"
-                  value={bedTarget}
-                  onChange={(e) => setBedTarget(Number.parseInt(e.target.value, 10))}
+                  min={0}
+                  max={120}
+                  value={[bedTarget]}
+                  onValueChange={([val]) => val !== undefined && setBedTarget(val)}
                   className="flex-1"
                 />
-                <input
-                  type="number"
-                  min="0"
-                  max="120"
+                <NumberInput
+                  min={0}
+                  max={120}
                   value={bedTarget}
-                  onChange={(e) => setBedTarget(Number.parseInt(e.target.value, 10) || 0)}
-                  className="w-20 rounded-md border border-neutral-700 bg-neutral-800 px-2 py-1 text-sm text-neutral-100 text-center focus:border-primary-500 focus:outline-none"
+                  onValueChange={(val) => setBedTarget(Math.floor(val) || 0)}
+                  className="w-20"
                 />
               </div>
               <p className="mt-1 text-xs text-neutral-600">
@@ -396,16 +393,13 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
                 <label htmlFor="coolingFan" className="mb-1.5 block text-sm text-neutral-400">
                   Cooling Fan Speed ({state.fan.coolingFanSpeed}%)
                 </label>
-                <input
+                <Slider
                   id="coolingFan"
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={state.fan.coolingFanSpeed}
-                  onChange={(e) =>
-                    onSetFan({ coolingFanSpeed: Number.parseInt(e.target.value, 10) })
-                  }
-                  className="w-full"
+                  min={0}
+                  max={100}
+                  value={[state.fan.coolingFanSpeed]}
+                  onValueChange={([val]) => val !== undefined && onSetFan({ coolingFanSpeed: val })}
+                  className="w-full mt-2"
                 />
               </div>
 
@@ -414,40 +408,57 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
                 <label htmlFor="chamberFan" className="mb-1.5 block text-sm text-neutral-400">
                   Chamber Fan Speed ({state.fan.chamberFanSpeed}%)
                 </label>
-                <input
+                <Slider
                   id="chamberFan"
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={state.fan.chamberFanSpeed}
-                  onChange={(e) =>
-                    onSetFan({ chamberFanSpeed: Number.parseInt(e.target.value, 10) })
-                  }
-                  className="w-full"
+                  min={0}
+                  max={100}
+                  value={[state.fan.chamberFanSpeed]}
+                  onValueChange={([val]) => val !== undefined && onSetFan({ chamberFanSpeed: val })}
+                  className="w-full mt-2"
                 />
               </div>
 
               {/* Fan Toggles */}
-              <div className="flex gap-3 sm:col-span-2">
-                <label className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={state.fan.internalFanEnabled}
-                    onChange={(e) => onSetFan({ internalFanEnabled: e.target.checked })}
-                    className="rounded border-neutral-600 bg-neutral-700 text-primary-500 focus:ring-1 focus:ring-primary-500"
-                  />
-                  <span>Internal Fan</span>
-                </label>
+              <div className="flex gap-4 sm:col-span-2">
+                {/* Internal Fan Toggle */}
+                <div className="flex items-center justify-between gap-3 rounded-md border border-neutral-700 bg-neutral-800 px-4 py-3 flex-1">
+                  <span className="text-sm font-medium text-neutral-300">Internal Fan</span>
+                  <button
+                    type="button"
+                    onClick={() => onSetFan({ internalFanEnabled: !state.fan.internalFanEnabled })}
+                    className={[
+                      'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-neutral-900',
+                      state.fan.internalFanEnabled ? 'bg-primary-600' : 'bg-neutral-700',
+                    ].join(' ')}
+                  >
+                    <span
+                      className={[
+                        'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                        state.fan.internalFanEnabled ? 'translate-x-6' : 'translate-x-1',
+                      ].join(' ')}
+                    />
+                  </button>
+                </div>
 
-                <label className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={state.fan.externalFanEnabled}
-                    onChange={(e) => onSetFan({ externalFanEnabled: e.target.checked })}
-                    className="rounded border-neutral-600 bg-neutral-700 text-primary-500 focus:ring-1 focus:ring-primary-500"
-                  />
-                  <span>External Fan</span>
-                </label>
+                {/* External Fan Toggle */}
+                <div className="flex items-center justify-between gap-3 rounded-md border border-neutral-700 bg-neutral-800 px-4 py-3 flex-1">
+                  <span className="text-sm font-medium text-neutral-300">External Fan</span>
+                  <button
+                    type="button"
+                    onClick={() => onSetFan({ externalFanEnabled: !state.fan.externalFanEnabled })}
+                    className={[
+                      'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 focus:ring-offset-neutral-900',
+                      state.fan.externalFanEnabled ? 'bg-primary-600' : 'bg-neutral-700',
+                    ].join(' ')}
+                  >
+                    <span
+                      className={[
+                        'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                        state.fan.externalFanEnabled ? 'translate-x-6' : 'translate-x-1',
+                      ].join(' ')}
+                    />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
