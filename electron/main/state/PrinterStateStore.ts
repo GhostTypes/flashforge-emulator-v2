@@ -94,9 +94,6 @@ function createDefaultState(model: PrinterModel): PrinterState {
     },
     led: {
       enabled: false,
-      red: 255,
-      green: 255,
-      blue: 255,
     },
     fan: {
       coolingFanSpeed: 0,
@@ -250,6 +247,12 @@ export class PrinterStateStore extends EventEmitter {
     }
     if (config.cumulativeFilament !== undefined) {
       this.#state.cumulativeFilament = config.cumulativeFilament;
+    }
+    if (config.discoveryConfig !== undefined) {
+      this.#config.discoveryConfig = {
+        ...this.#config.discoveryConfig,
+        ...config.discoveryConfig,
+      };
     }
 
     this.emit('state-changed', this.#state);
@@ -534,11 +537,8 @@ export class PrinterStateStore extends EventEmitter {
   /**
    * Updates LED state
    */
-  updateLed(enabled: boolean, red?: number, green?: number, blue?: number): void {
+  updateLed(enabled: boolean): void {
     this.#state.led.enabled = enabled;
-    if (red !== undefined) this.#state.led.red = red;
-    if (green !== undefined) this.#state.led.green = green;
-    if (blue !== undefined) this.#state.led.blue = blue;
     this.emit('state-changed', this.#state);
   }
 

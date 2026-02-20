@@ -124,8 +124,7 @@ const emulatorApi = {
   /**
    * Update LED
    */
-  updateLed: (enabled: boolean, red?: number, green?: number, blue?: number): Promise<void> =>
-    ipcRenderer.invoke('update-led', enabled, red, green, blue),
+  updateLed: (enabled: boolean): Promise<void> => ipcRenderer.invoke('update-led', enabled),
 
   /**
    * Update fan

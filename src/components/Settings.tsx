@@ -8,7 +8,7 @@
  */
 
 import type { EmulatorConfig, NetworkInterface, PrinterModel } from '@shared/types/printer';
-import { Check, Loader2, Power, PowerOff, RefreshCw } from 'lucide-react';
+import { Check, Loader2, Radio, RefreshCw } from 'lucide-react';
 import type { FunctionComponent } from 'react';
 import { useEffect, useState } from 'react';
 import { getPrinterModels, getPrinterProfile } from '../hooks/useEmulatorState';
@@ -24,16 +24,6 @@ interface SettingsProps {
   onInitialize: (model: PrinterModel) => Promise<void>;
   /** Callback to reset printer */
   onReset: () => Promise<void>;
-  /** Callback to start TCP server */
-  onStartTcp: () => Promise<void>;
-  /** Callback to stop TCP server */
-  onStopTcp: () => Promise<void>;
-  /** Callback to start HTTP server */
-  onStartHttp: () => Promise<void>;
-  /** Callback to stop HTTP server */
-  onStopHttp: () => Promise<void>;
-  /** Whether servers are running */
-  serversRunning: { tcp: boolean; http: boolean };
   /** Callback to get network interfaces */
   onGetNetworkInterfaces: () => Promise<NetworkInterface[]>;
 }
@@ -44,11 +34,6 @@ export const Settings: FunctionComponent<SettingsProps> = ({
   onConfigChange,
   onInitialize,
   onReset,
-  onStartTcp,
-  onStopTcp,
-  onStartHttp,
-  onStopHttp,
-  serversRunning,
   onGetNetworkInterfaces,
 }) => {
   const printerModels = getPrinterModels();
@@ -235,21 +220,194 @@ export const Settings: FunctionComponent<SettingsProps> = ({
             </p>
           </div>
         </div>
+      </section>
 
-        {/* Server Controls */}
-        <div className="mt-4 flex flex-wrap gap-3 border-t border-neutral-800 pt-4">
-          <ServerButton
-            label="TCP Server"
-            running={serversRunning.tcp}
-            onStart={onStartTcp}
-            onStop={onStopTcp}
-          />
-          <ServerButton
-            label="HTTP Server"
-            running={serversRunning.http}
-            onStart={onStartHttp}
-            onStop={onStopHttp}
-          />
+      {/* Discovery Configuration */}
+      <section className="rounded-lg border border-neutral-800 bg-neutral-900 p-5">
+        <h3 className="mb-4 flex items-center gap-2 text-sm font-medium text-neutral-300">
+          <Radio className="h-4 w-4" />
+          Discovery Protocol Override
+        </h3>
+        <p className="mb-4 text-xs text-neutral-500">
+          Customize the values sent in the UDP discovery broadcast.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {/* Machine Name */}
+          <div>
+            <label htmlFor="discMachineName" className="mb-1.5 block text-sm text-neutral-400">
+              Machine Name
+            </label>
+            <input
+              id="discMachineName"
+              type="text"
+              placeholder="Default"
+              value={config.discoveryConfig?.machineName || ''}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryConfig: { ...config.discoveryConfig, machineName: e.target.value },
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+          </div>
+
+          {/* Command Port */}
+          <div>
+            <label htmlFor="discCommandPort" className="mb-1.5 block text-sm text-neutral-400">
+              Command Port
+            </label>
+            <input
+              id="discCommandPort"
+              type="number"
+              value={config.discoveryConfig?.commandPort ?? 8899}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryConfig: {
+                    ...config.discoveryConfig,
+                    commandPort: Number.parseInt(e.target.value, 10) || 0,
+                  },
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+          </div>
+
+          {/* HTTP Port */}
+          <div>
+            <label htmlFor="discHttpPort" className="mb-1.5 block text-sm text-neutral-400">
+              HTTP/Event/Camera Port
+            </label>
+            <input
+              id="discHttpPort"
+              type="number"
+              value={config.discoveryConfig?.httpPort ?? 8898}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryConfig: {
+                    ...config.discoveryConfig,
+                    httpPort: Number.parseInt(e.target.value, 10) || 0,
+                  },
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+          </div>
+
+          {/* Legacy Port 2 */}
+          <div>
+            <label htmlFor="discLegacyPort2" className="mb-1.5 block text-sm text-neutral-400">
+              Legacy Port 2
+            </label>
+            <input
+              id="discLegacyPort2"
+              type="number"
+              value={config.discoveryConfig?.legacyPort2 ?? 8}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryConfig: {
+                    ...config.discoveryConfig,
+                    legacyPort2: Number.parseInt(e.target.value, 10) || 0,
+                  },
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+          </div>
+
+          {/* VID */}
+          <div>
+            <label htmlFor="discVid" className="mb-1.5 block text-sm text-neutral-400">
+              VID (Hex)
+            </label>
+            <input
+              id="discVid"
+              type="text"
+              value={config.discoveryConfig?.vid?.toString(16) || '2b71'}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryConfig: {
+                    ...config.discoveryConfig,
+                    vid: Number.parseInt(e.target.value, 16) || 0,
+                  },
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+          </div>
+
+          {/* PID */}
+          <div>
+            <label htmlFor="discPid" className="mb-1.5 block text-sm text-neutral-400">
+              PID (Hex)
+            </label>
+            <input
+              id="discPid"
+              type="text"
+              value={config.discoveryConfig?.pid?.toString(16) || '24'}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryConfig: {
+                    ...config.discoveryConfig,
+                    pid: Number.parseInt(e.target.value, 16) || 0,
+                  },
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+          </div>
+
+          {/* Product Type */}
+          <div>
+            <label htmlFor="discProductType" className="mb-1.5 block text-sm text-neutral-400">
+              Product Type (Hex)
+            </label>
+            <input
+              id="discProductType"
+              type="text"
+              value={config.discoveryConfig?.productType?.toString(16) || '5a02'}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryConfig: {
+                    ...config.discoveryConfig,
+                    productType: Number.parseInt(e.target.value, 16) || 0,
+                  },
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            />
+          </div>
+
+          {/* Status */}
+          <div>
+            <label htmlFor="discStatus" className="mb-1.5 block text-sm text-neutral-400">
+              Status Code
+            </label>
+            <select
+              id="discStatus"
+              value={config.discoveryConfig?.status ?? 0}
+              onChange={(e) =>
+                onConfigChange({
+                  ...config,
+                  discoveryConfig: {
+                    ...config.discoveryConfig,
+                    status: Number.parseInt(e.target.value, 10),
+                  },
+                })
+              }
+              className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm text-neutral-100 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500"
+            >
+              <option value="0">Ready (0)</option>
+              <option value="1">Busy (1)</option>
+              <option value="2">Error (2)</option>
+            </select>
+          </div>
         </div>
       </section>
 
@@ -321,46 +479,3 @@ export const Settings: FunctionComponent<SettingsProps> = ({
     </div>
   );
 };
-
-interface ServerButtonProps {
-  label: string;
-  running: boolean;
-  onStart: () => void;
-  onStop: () => void;
-}
-
-function ServerButton({ label, running, onStart, onStop }: ServerButtonProps) {
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 p-2">
-      {running ? (
-        <>
-          <div className="flex h-2 w-2">
-            <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-success opacity-75" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
-          </div>
-          <span className="flex-1 text-sm text-neutral-300">{label} Running</span>
-          <button
-            type="button"
-            onClick={onStop}
-            className="rounded border border-neutral-600 px-2 py-1 text-xs text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200 transition-colors"
-          >
-            Stop
-          </button>
-        </>
-      ) : (
-        <>
-          <PowerOff className="h-4 w-4 text-neutral-500" />
-          <span className="flex-1 text-sm text-neutral-500">{label} Stopped</span>
-          <button
-            type="button"
-            onClick={onStart}
-            className="flex items-center gap-1 rounded border border-primary-500/30 bg-primary-500/10 px-2 py-1 text-xs text-primary-500 hover:bg-primary-500/20 transition-colors"
-          >
-            <Power className="h-3 w-3" />
-            Start
-          </button>
-        </>
-      )}
-    </div>
-  );
-}

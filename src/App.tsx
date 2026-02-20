@@ -110,7 +110,16 @@ export const App: FunctionComponent = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'dashboard':
-        return <Dashboard state={state} />;
+        return (
+          <Dashboard
+            state={state}
+            onStartTcp={handleStartTcp}
+            onStopTcp={handleStopTcp}
+            onStartHttp={handleStartHttp}
+            onStopHttp={handleStopHttp}
+            serversRunning={serversRunning}
+          />
+        );
       case 'controls':
         return (
           <PrintControls
@@ -127,8 +136,8 @@ export const App: FunctionComponent = () => {
               void window.api.setTargetTemperatures(nozzle, bed, chamber);
               addLog('system', 'info', `Temperatures set: N${nozzle}°C B${bed}°C`);
             }}
-            onSetLed={(enabled, red, green, blue) => {
-              void window.api.updateLed(enabled, red, green, blue);
+            onSetLed={(enabled) => {
+              void window.api.updateLed(enabled);
               addLog('system', 'info', `LED ${enabled ? 'enabled' : 'disabled'}`);
             }}
             onSetFan={(settings) => {
@@ -174,16 +183,20 @@ export const App: FunctionComponent = () => {
               await resetPrinter();
               addLog('system', 'info', 'Printer state reset');
             }}
+            onGetNetworkInterfaces={getNetworkInterfaces}
+          />
+        );
+      default:
+        return (
+          <Dashboard
+            state={state}
             onStartTcp={handleStartTcp}
             onStopTcp={handleStopTcp}
             onStartHttp={handleStartHttp}
             onStopHttp={handleStopHttp}
             serversRunning={serversRunning}
-            onGetNetworkInterfaces={getNetworkInterfaces}
           />
         );
-      default:
-        return <Dashboard state={state} />;
     }
   };
 

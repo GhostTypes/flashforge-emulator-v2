@@ -161,12 +161,9 @@ export function registerStateHandlers(): void {
   /**
    * Update LED
    */
-  ipcMain.handle(
-    'update-led',
-    (_event, enabled: boolean, red?: number, green?: number, blue?: number): void => {
-      printerStateStore.updateLed(enabled, red, green, blue);
-    }
-  );
+  ipcMain.handle('update-led', (_event, enabled: boolean): void => {
+    printerStateStore.updateLed(enabled);
+  });
 
   /**
    * Update fan

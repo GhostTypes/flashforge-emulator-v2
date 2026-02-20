@@ -164,12 +164,6 @@ export interface MaterialStationState {
 export interface LedState {
   /** Whether LEDs are enabled */
   enabled: boolean;
-  /** Red component (0-255) */
-  red: number;
-  /** Green component (0-255) */
-  green: number;
-  /** Blue component (0-255) */
-  blue: number;
 }
 
 /**
@@ -446,6 +440,20 @@ export interface NetworkInterface {
 }
 
 /**
+ * Discovery connection settings
+ */
+export interface DiscoveryConfig {
+  machineName: string;
+  commandPort: number;
+  vid: number;
+  pid: number;
+  productType: number;
+  httpPort: number;
+  legacyPort2: number;
+  status: number;
+}
+
+/**
  * Emulator configuration
  */
 export interface EmulatorConfig {
@@ -471,6 +479,8 @@ export interface EmulatorConfig {
   cumulativePrintTime: number;
   /** Cumulative filament used in meters (persists across sessions) */
   cumulativeFilament: number;
+  /** Custom discovery overriding options */
+  discoveryConfig: DiscoveryConfig;
 }
 
 /**
@@ -488,4 +498,14 @@ export const DEFAULT_CONFIG: EmulatorConfig = {
   discoveryInterface: '',
   cumulativePrintTime: 0,
   cumulativeFilament: 0,
+  discoveryConfig: {
+    machineName: '',
+    commandPort: 8899,
+    vid: 0x2b71,
+    pid: 0x0024,
+    productType: 0x5a02,
+    httpPort: 8898,
+    legacyPort2: 8,
+    status: 0,
+  },
 } as const;

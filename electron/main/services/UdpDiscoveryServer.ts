@@ -2,86 +2,74 @@
  * @fileoverview
  * UDP Discovery Server for FlashForge printer emulation
  *
- * Implements the printer discovery protocol on port 48899.
- * Responds to UDP broadcast discovery packets from FlashFinderUI.
+ * Implements the printer discovery protocols.
+ * Supports Modern (multicast 19000 & broadcast 48899) and Legacy (multicast 8899).
  *
  * @packageDocumentation
  */
 
 import * as dgram from 'node:dgram';
 import { EventEmitter } from 'node:events';
-import type { PrinterModel } from '../../../shared/types/printer';
+import type { DiscoveryConfig, PrinterModel, PrinterState } from '../../../shared/types/printer';
+import { PRINTER_PROFILES } from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
 
 /**
- * The UDP port for receiving discovery packets
- * FlashFinderUI sends broadcasts to this port
+ * Creates the modern discovery response buffer (276 bytes)
  */
-const DISCOVERY_PORT = 48899;
-
-/**
- * The discovery packet pattern (first 8 bytes)
- * This is "www.usr" in ASCII followed by specific bytes
- */
-const DISCOVERY_PACKET_PATTERN = Buffer.from([
-  0x77, 0x77, 0x77, 0x2e, 0x75, 0x73, 0x72, 0x22, 0x65, 0x36, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00,
-  0x00, 0x00, 0x00, 0x00,
-]);
-
-/**
- * Creates the discovery response buffer
- * Returns a 196-byte (0xC4) buffer with printer information
- *
- * Response format:
- * - Offset 0x00 (0-31): Printer name (32 bytes, ASCII, null-padded)
- * - Offset 0x20-0x91: Unknown/reserved data
- * - Offset 0x92 (146-177): Serial number (32 bytes, ASCII, null-padded)
- * - Remaining bytes: Additional data
- */
-function createDiscoveryResponse(printerName: string, serialNumber: string): Buffer {
-  const RESPONSE_SIZE = 0xc4; // 196 bytes
+function createModernResponse(state: PrinterState, overrides: DiscoveryConfig): Buffer {
+  const RESPONSE_SIZE = 276;
   const response = Buffer.alloc(RESPONSE_SIZE);
 
-  // Write printer name at offset 0x00 (32 bytes)
-  const nameBytes = Buffer.from(printerName, 'ascii');
-  const nameEnd = Math.min(nameBytes.length, 32);
-  nameBytes.copy(response, 0, 0, nameEnd);
+  const nameToUse = overrides.machineName || state.machineName;
+  const nameBytes = Buffer.from(nameToUse, 'ascii');
+  nameBytes.copy(response, 0, 0, Math.min(nameBytes.length, 132));
 
-  // Write serial number at offset 0x92 (32 bytes)
-  const serialBytes = Buffer.from(serialNumber, 'ascii');
-  const serialEnd = Math.min(serialBytes.length, 32);
-  serialBytes.copy(response, 0x92, 0, serialEnd);
+  response.writeUInt16BE(overrides.commandPort, 0x84);
+  response.writeUInt16BE(overrides.vid, 0x86);
+  response.writeUInt16BE(overrides.pid, 0x88);
+  response.writeUInt16BE(0, 0x8a); // Reserved
+  response.writeUInt16BE(overrides.productType, 0x8c);
+  response.writeUInt16BE(overrides.httpPort, 0x8e);
+  response.writeUInt16BE(overrides.status, 0x90);
 
-  // The rest of the buffer contains additional printer information
-  // For now, we keep it minimal to enable discovery
+  const serialBytes = Buffer.from(state.serialNumber, 'ascii');
+  serialBytes.copy(response, 0x92, 0, Math.min(serialBytes.length, 130));
+
+  return response;
+}
+
+/**
+ * Creates the legacy discovery response buffer (140 bytes)
+ */
+function createLegacyResponse(state: PrinterState, overrides: DiscoveryConfig): Buffer {
+  const RESPONSE_SIZE = 140;
+  const response = Buffer.alloc(RESPONSE_SIZE);
+
+  const nameToUse = overrides.machineName || state.machineName;
+  const nameBytes = Buffer.from(nameToUse, 'ascii');
+  nameBytes.copy(response, 0, 0, Math.min(nameBytes.length, 128));
+
+  response.writeUInt16BE(overrides.status, 0x80);
+  response.writeUInt16BE(overrides.commandPort, 0x82);
+  response.writeUInt16BE(overrides.legacyPort2, 0x84);
+  response.writeUInt16BE(overrides.httpPort, 0x86);
 
   return response;
 }
 
 /**
  * UDP Discovery Server for FlashForge printer emulation
- *
- * Listens on port 48899 for discovery packets and responds
- * with printer information to enable FlashFinderUI to find the printer.
  */
 export class UdpDiscoveryServer extends EventEmitter {
-  /** UDP socket instance */
-  #socket: dgram.Socket | null = null;
-  /** Port number for the discovery server */
-  #port: number;
+  /** UDP socket instances */
+  #sockets: dgram.Socket[] = [];
   /** Whether the server is running */
   #running = false;
   /** Current printer model */
   #model: PrinterModel;
   /** Bind address for the discovery server (empty = all interfaces) */
   #bindAddress = '';
-
-  /**
-   * Gets the current port
-   */
-  get port(): number {
-    return this.#port;
-  }
 
   /**
    * Gets the current printer model
@@ -106,7 +94,6 @@ export class UdpDiscoveryServer extends EventEmitter {
 
   constructor(model: PrinterModel) {
     super();
-    this.#port = DISCOVERY_PORT;
     this.#model = model;
   }
 
@@ -119,28 +106,18 @@ export class UdpDiscoveryServer extends EventEmitter {
     }
 
     try {
-      this.#socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+      const state = printerStateStore.state;
+      const mode = state.protocolMode;
 
-      this.#socket.on('error', (error) => {
-        this.emit('error', error);
-      });
+      if (mode === 'modern') {
+        this.#createSocket(48899, false); // broadcast
+        this.#createSocket(19000, true); // multicast
+      } else {
+        this.#createSocket(8899, true); // multicast
+      }
 
-      this.#socket.on('message', (buffer, rinfo) => {
-        this.#handleDiscovery(buffer, rinfo);
-      });
-
-      this.#socket.on('listening', () => {
-        // Enable broadcast to receive broadcast messages
-        this.#socket?.setBroadcast(true);
-        this.#running = true;
-        this.emit('started', this.#port);
-      });
-
-      // Bind to the discovery port on the configured address
-      // Empty address means bind to all interfaces (0.0.0.0)
-      const bindAddress = this.#bindAddress || undefined;
-      this.#socket.bind({ port: this.#port, address: bindAddress });
-
+      this.#running = true;
+      this.emit('started');
       return true;
     } catch (error) {
       this.emit('error', error);
@@ -152,21 +129,77 @@ export class UdpDiscoveryServer extends EventEmitter {
    * Stops the UDP discovery server
    */
   stop(): void {
-    if (!this.#running || !this.#socket) {
+    if (!this.#running) {
       return;
     }
 
-    this.#socket.close();
-    this.#socket = null;
+    for (const socket of this.#sockets) {
+      try {
+        socket.close();
+      } catch {
+        // Ignore close errors
+      }
+    }
+    this.#sockets = [];
     this.#running = false;
     this.emit('stopped');
+  }
+
+  /**
+   * Helper to create, bind, and config a UDP socket
+   */
+  #createSocket(port: number, isMulticast: boolean): void {
+    const socket = dgram.createSocket({ type: 'udp4', reuseAddr: true });
+    this.#sockets.push(socket);
+
+    socket.on('error', (error) => {
+      this.emit('error', error);
+    });
+
+    socket.on('message', (buffer, rinfo) => {
+      this.#handleDiscovery(buffer, rinfo, socket);
+    });
+
+    socket.on('listening', () => {
+      try {
+        if (!isMulticast) {
+          socket.setBroadcast(true);
+        } else {
+          const bindAddressAttr = this.#bindAddress || undefined;
+          if (bindAddressAttr) {
+            socket.addMembership('225.0.0.9', bindAddressAttr);
+          } else {
+            socket.addMembership('225.0.0.9');
+          }
+        }
+      } catch (err) {
+        this.emit(
+          'error',
+          new Error(
+            `Failed to configure connection for port ${port}: ${err instanceof Error ? err.message : String(err)}`
+          )
+        );
+      }
+    });
+
+    const bindAddress = this.#bindAddress || undefined;
+    socket.bind({ port, address: bindAddress });
   }
 
   /**
    * Updates the printer model
    */
   updateModel(model: PrinterModel): void {
+    const currentMode = PRINTER_PROFILES[this.#model]?.protocolMode;
+    const newMode = PRINTER_PROFILES[model]?.protocolMode;
+
     this.#model = model;
+
+    // If the required discovery protocol mode differs, restart the server
+    if (this.#running && currentMode !== newMode) {
+      this.stop();
+      this.start();
+    }
   }
 
   /**
@@ -185,62 +218,51 @@ export class UdpDiscoveryServer extends EventEmitter {
 
   /**
    * Handles incoming discovery packets
-   *
-   * When a valid discovery packet is received, sends a response
-   * with printer information back to the sender.
    */
-  #handleDiscovery(buffer: Buffer, rinfo: dgram.RemoteInfo): void {
-    // Check if this is a valid discovery packet
-    // The discovery packet is 20 bytes starting with "www.usr"
-    if (buffer.length < 20) {
+  #handleDiscovery(buffer: Buffer, rinfo: dgram.RemoteInfo, originSocket: dgram.Socket): void {
+    // Ignore empty/meaningless noise
+    if (!buffer || buffer.length === 0) {
       return;
     }
 
-    // Compare first 20 bytes with the discovery pattern
-    let isValidDiscovery = true;
-    for (let i = 0; i < DISCOVERY_PACKET_PATTERN.length; i++) {
-      if (buffer[i] !== DISCOVERY_PACKET_PATTERN[i]) {
-        isValidDiscovery = false;
-        break;
-      }
-    }
-
-    if (!isValidDiscovery) {
-      return;
-    }
+    // According to unified implementation spec, probe payload is ignored (any UDP packet works)
+    // No longer strictly validating 'www.usr' to ensure full client compatibility
 
     this.emit('discovery-request', {
       remoteAddress: rinfo.address,
       remotePort: rinfo.port,
+      size: buffer.length,
     });
 
-    // Get printer information
     const state = printerStateStore.state;
-    const profile = printerStateStore.getProfile();
+    const config = printerStateStore.config;
 
-    // Create and send discovery response
-    const response = createDiscoveryResponse(profile.name, state.serialNumber);
+    let response: Buffer;
 
-    // Send response back to the sender
-    // The client typically listens on port 18007 for responses
+    if (state.protocolMode === 'legacy') {
+      response = createLegacyResponse(state, config.discoveryConfig);
+    } else {
+      response = createModernResponse(state, config.discoveryConfig);
+    }
+
+    // Typical clients (like FlashForgeUI) listen on port 18007 for responses
     const responsePort = 18007;
 
-    if (this.#socket) {
-      this.#socket.send(response, responsePort, rinfo.address, (error) => {
-        if (error) {
-          this.emit('send-error', {
-            remoteAddress: rinfo.address,
-            error,
-          });
-        } else {
-          this.emit('discovery-response', {
-            remoteAddress: rinfo.address,
-            printerName: profile.name,
-            serialNumber: state.serialNumber,
-          });
-        }
-      });
-    }
+    originSocket.send(response, responsePort, rinfo.address, (error) => {
+      if (error) {
+        this.emit('send-error', {
+          remoteAddress: rinfo.address,
+          error,
+        });
+      } else {
+        this.emit('discovery-response', {
+          remoteAddress: rinfo.address,
+          printerName: config.discoveryConfig.machineName || state.machineName,
+          serialNumber: state.serialNumber,
+          mode: state.protocolMode,
+        });
+      }
+    });
   }
 }
 

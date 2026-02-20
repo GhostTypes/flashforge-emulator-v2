@@ -16,6 +16,8 @@ import {
   Network,
   Pause,
   Play,
+  Power,
+  PowerOff,
   Printer,
   Thermometer,
   ThermometerSun,
@@ -26,6 +28,16 @@ import type { ElementType, FunctionComponent } from 'react';
 interface DashboardProps {
   /** Current printer state */
   state: PrinterState;
+  /** Callback to start TCP server */
+  onStartTcp: () => Promise<void>;
+  /** Callback to stop TCP server */
+  onStopTcp: () => Promise<void>;
+  /** Callback to start HTTP server */
+  onStartHttp: () => Promise<void>;
+  /** Callback to stop HTTP server */
+  onStopHttp: () => Promise<void>;
+  /** Whether servers are running */
+  serversRunning: { tcp: boolean; http: boolean };
 }
 
 const STATUS_CONFIG: Record<
@@ -60,7 +72,14 @@ const STATUS_CONFIG: Record<
   },
 };
 
-export const Dashboard: FunctionComponent<DashboardProps> = ({ state }) => {
+export const Dashboard: FunctionComponent<DashboardProps> = ({
+  state,
+  onStartTcp,
+  onStopTcp,
+  onStartHttp,
+  onStopHttp,
+  serversRunning,
+}) => {
   const statusKey: keyof typeof STATUS_CONFIG = state.machineStatus as keyof typeof STATUS_CONFIG;
   const statusConfig = STATUS_CONFIG[statusKey] ?? STATUS_CONFIG['idle'];
   if (!statusConfig) {
@@ -248,21 +267,89 @@ export const Dashboard: FunctionComponent<DashboardProps> = ({ state }) => {
 
       {/* Connection Info */}
       <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-        <div className="flex items-center gap-2 text-sm">
-          <Network className="h-4 w-4 text-neutral-500" />
-          <span className="text-neutral-500">Connection:</span>
-          <span className="font-medium text-neutral-100">
-            TCP: 8899 {state.tcpControlActive && '(Connected)'}
-          </span>
-          <span className="mx-1 text-neutral-700">|</span>
-          <span className="font-medium text-neutral-100">HTTP: 8898</span>
-          <span className="mx-1 text-neutral-700">|</span>
-          <span className="font-mono text-xs text-neutral-500">{state.ipAddress}</span>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2 text-sm">
+            <Network className="h-4 w-4 text-neutral-500" />
+            <span className="text-neutral-500">Connection:</span>
+            <span className="font-medium text-neutral-100">
+              TCP: 8899 {state.tcpControlActive && '(Connected)'}
+            </span>
+            <span className="mx-1 text-neutral-700">|</span>
+            <span className="font-medium text-neutral-100">HTTP: 8898</span>
+            <span className="mx-1 text-neutral-700">|</span>
+            <span className="font-mono text-xs text-neutral-500">{state.ipAddress}</span>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <ServerButton
+              label="TCP"
+              running={serversRunning.tcp}
+              onStart={() => {
+                void onStartTcp();
+              }}
+              onStop={() => {
+                void onStopTcp();
+              }}
+            />
+            <ServerButton
+              label="HTTP"
+              running={serversRunning.http}
+              onStart={() => {
+                void onStartHttp();
+              }}
+              onStop={() => {
+                void onStopHttp();
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>
   );
 };
+
+interface ServerButtonProps {
+  label: string;
+  running: boolean;
+  onStart: () => void;
+  onStop: () => void;
+}
+
+function ServerButton({ label, running, onStart, onStop }: ServerButtonProps) {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-1.5">
+      {running ? (
+        <>
+          <div className="flex h-2 w-2">
+            <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-success opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-success" />
+          </div>
+          <span className="flex-1 text-xs font-medium text-neutral-300">{label} Running</span>
+          <button
+            type="button"
+            onClick={onStop}
+            className="rounded border border-neutral-600 px-2 py-0.5 text-[10px] text-neutral-400 hover:bg-neutral-700 hover:text-neutral-200 transition-colors"
+          >
+            Stop
+          </button>
+        </>
+      ) : (
+        <>
+          <PowerOff className="h-3 w-3 text-neutral-500" />
+          <span className="flex-1 text-xs font-medium text-neutral-500">{label} Stopped</span>
+          <button
+            type="button"
+            onClick={onStart}
+            className="flex items-center gap-1 rounded border border-primary-500/30 bg-primary-500/10 px-2 py-0.5 text-[10px] font-medium text-primary-500 hover:bg-primary-500/20 transition-colors"
+          >
+            <Power className="h-2.5 w-2.5" />
+            Start
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
 
 /**
  * Format seconds to human-readable time string

@@ -897,7 +897,7 @@ export class TcpServer extends EventEmitter {
     const blue = blueMatch?.[1] ? Number.parseInt(blueMatch[1], 10) : 0;
 
     const enabled = red > 0 || green > 0 || blue > 0;
-    printerStateStore.updateLed(enabled, red, green, blue);
+    printerStateStore.updateLed(enabled);
 
     return new ResponseBuilder().cmdReceived('M146').build();
   }
