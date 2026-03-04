@@ -14,12 +14,16 @@ import type {
   MaterialSlotUpdate,
   NetworkInterface,
   PrinterModel,
+  PrinterScenario,
   PrinterState,
+  ProtocolLogEntry,
+  ScenarioPreset,
 } from '../../../shared/types/printer';
 import { destroyHttpServer, getHttpServer } from '../services/HttpServer';
 import { destroyTcpServer, getTcpServer } from '../services/TcpServer';
 import { destroyUdpDiscoveryServer, getUdpDiscoveryServer } from '../services/UdpDiscoveryServer';
 import { printerStateStore } from '../state/PrinterStateStore';
+import { protocolLogStore } from '../state/ProtocolLogStore';
 import { getAvailableNetworkInterfaces } from '../utils/NetworkInterfaces';
 
 /**
@@ -94,6 +98,15 @@ export function registerStateHandlers(): void {
   });
 
   /**
+   * Set only the current print job status
+   */
+  ipcMain.handle('set-print-job-status', (_event, status: string): void => {
+    printerStateStore.setPrintJobStatus(
+      status as Parameters<typeof printerStateStore.setPrintJobStatus>[0]
+    );
+  });
+
+  /**
    * Update temperatures
    */
   ipcMain.handle(
@@ -133,8 +146,8 @@ export function registerStateHandlers(): void {
   /**
    * Start print job
    */
-  ipcMain.handle('start-print', (_event, filename: string, estimatedTime?: number): void => {
-    printerStateStore.startPrint(filename, estimatedTime);
+  ipcMain.handle('start-print', (_event, filename: string, estimatedTime?: number): boolean => {
+    return printerStateStore.startPrint(filename, estimatedTime);
   });
 
   /**
@@ -152,10 +165,24 @@ export function registerStateHandlers(): void {
   });
 
   /**
+   * Cancel print job
+   */
+  ipcMain.handle('cancel-print', (): void => {
+    printerStateStore.cancelPrint();
+  });
+
+  /**
    * Stop print job
    */
   ipcMain.handle('stop-print', (): void => {
     printerStateStore.stopPrint();
+  });
+
+  /**
+   * Clear completed/cancelled/error state back to ready
+   */
+  ipcMain.handle('clear-completed-state', (): void => {
+    printerStateStore.clearCompletedState();
   });
 
   /**
@@ -224,12 +251,55 @@ export function registerStateHandlers(): void {
   });
 
   /**
+   * Set the current loading slot (AD5X)
+   */
+  ipcMain.handle('set-current-load-slot', (_event, slotId: number): void => {
+    printerStateStore.setCurrentLoadSlot(slotId);
+  });
+
+  /**
+   * Get scenario presets for the QA console
+   */
+  ipcMain.handle('get-scenario-presets', (): readonly ScenarioPreset[] => {
+    return printerStateStore.getScenarioPresets();
+  });
+
+  /**
+   * Apply a named scenario preset
+   */
+  ipcMain.handle('apply-scenario-preset', (_event, presetId: string): void => {
+    printerStateStore.applyScenarioPreset(
+      presetId as Parameters<typeof printerStateStore.applyScenarioPreset>[0]
+    );
+  });
+
+  /**
+   * Apply an explicit manual scenario/state injection
+   */
+  ipcMain.handle('apply-scenario', (_event, scenario: PrinterScenario): void => {
+    printerStateStore.applyScenario(scenario);
+  });
+
+  /**
+   * Export the current state as a scenario snapshot
+   */
+  ipcMain.handle('get-scenario-snapshot', (): PrinterScenario => {
+    return printerStateStore.createScenarioSnapshot();
+  });
+
+  /**
    * Start TCP server
    */
   ipcMain.handle('start-tcp-server', (): void => {
     const config = printerStateStore.config;
     const tcpServer = getTcpServer(config.tcpPort, printerStateStore.state.model);
     tcpServer.start();
+    protocolLogStore.add({
+      protocol: 'system',
+      direction: 'internal',
+      level: 'info',
+      summary: `TCP server started on ${config.tcpPort}`,
+    });
   });
 
   /**
@@ -237,6 +307,12 @@ export function registerStateHandlers(): void {
    */
   ipcMain.handle('stop-tcp-server', (): void => {
     destroyTcpServer();
+    protocolLogStore.add({
+      protocol: 'system',
+      direction: 'internal',
+      level: 'info',
+      summary: 'TCP server stopped',
+    });
   });
 
   /**
@@ -246,6 +322,12 @@ export function registerStateHandlers(): void {
     const config = printerStateStore.config;
     const httpServer = getHttpServer(config.httpPort, printerStateStore.state.model);
     httpServer.start();
+    protocolLogStore.add({
+      protocol: 'system',
+      direction: 'internal',
+      level: 'info',
+      summary: `HTTP server started on ${config.httpPort}`,
+    });
   });
 
   /**
@@ -253,6 +335,12 @@ export function registerStateHandlers(): void {
    */
   ipcMain.handle('stop-http-server', (): void => {
     destroyHttpServer();
+    protocolLogStore.add({
+      protocol: 'system',
+      direction: 'internal',
+      level: 'info',
+      summary: 'HTTP server stopped',
+    });
   });
 
   /**
@@ -261,6 +349,12 @@ export function registerStateHandlers(): void {
   ipcMain.handle('start-discovery-server', (): void => {
     const udpDiscoveryServer = getUdpDiscoveryServer(printerStateStore.state.model);
     udpDiscoveryServer.start();
+    protocolLogStore.add({
+      protocol: 'system',
+      direction: 'internal',
+      level: 'info',
+      summary: 'Discovery server started',
+    });
   });
 
   /**
@@ -268,6 +362,12 @@ export function registerStateHandlers(): void {
    */
   ipcMain.handle('stop-discovery-server', (): void => {
     destroyUdpDiscoveryServer();
+    protocolLogStore.add({
+      protocol: 'system',
+      direction: 'internal',
+      level: 'info',
+      summary: 'Discovery server stopped',
+    });
   });
 
   /**
@@ -288,6 +388,20 @@ export function registerStateHandlers(): void {
     if (speed !== undefined) {
       printerStateStore.simulationSpeed = speed;
     }
+  });
+
+  /**
+   * Get current protocol logs
+   */
+  ipcMain.handle('get-protocol-logs', (): readonly ProtocolLogEntry[] => {
+    return protocolLogStore.entries;
+  });
+
+  /**
+   * Clear protocol logs
+   */
+  ipcMain.handle('clear-protocol-logs', (): void => {
+    protocolLogStore.clear();
   });
 }
 
@@ -319,6 +433,18 @@ export function setupStateForwarding(mainWindow: Electron.BrowserWindow): void {
   printerStateStore.on('job-changed', (job: typeof printerStateStore.state.printJob) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('job-update', job);
+    }
+  });
+
+  protocolLogStore.on('entry-added', (entry: ProtocolLogEntry) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('protocol-log-entry', entry);
+    }
+  });
+
+  protocolLogStore.on('cleared', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('protocol-log-cleared');
     }
   });
 

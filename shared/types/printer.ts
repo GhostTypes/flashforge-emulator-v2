@@ -35,9 +35,75 @@ export type PrintJobStatus =
   | 'pausing'
   | 'paused'
   | 'cancel'
+  | 'cancelled'
   | 'calibrate_doing'
   | 'completed'
   | 'error';
+
+/**
+ * Status values emitted by the modern HTTP /detail endpoint.
+ */
+export type HttpDetailStatus =
+  | 'ready'
+  | 'busy'
+  | 'printing'
+  | 'paused'
+  | 'pausing'
+  | 'cancelled'
+  | 'completed'
+  | 'heating'
+  | 'error'
+  | 'calibrate_doing';
+
+/**
+ * Whether the printer can start a brand-new job from the current machine status.
+ *
+ * Sticky terminal states intentionally require an explicit clear back to ready.
+ */
+export function canStartNewPrint(machineStatus: PrintJobStatus): boolean {
+  return machineStatus === 'idle' || machineStatus === 'ready';
+}
+
+/**
+ * Terminal states that should remain visible until explicitly cleared.
+ */
+export function isStickyTerminalState(machineStatus: PrintJobStatus): boolean {
+  return (
+    machineStatus === 'completed' || machineStatus === 'cancelled' || machineStatus === 'error'
+  );
+}
+
+/**
+ * Maps internal machine state to the HTTP /detail status field consumed by the app.
+ */
+export function mapMachineStatusToHttpDetailStatus(
+  machineStatus: PrintJobStatus
+): HttpDetailStatus {
+  switch (machineStatus) {
+    case 'idle':
+    case 'ready':
+      return 'ready';
+    case 'busy':
+      return 'busy';
+    case 'printing':
+      return 'printing';
+    case 'paused':
+      return 'paused';
+    case 'pausing':
+      return 'pausing';
+    case 'cancel':
+    case 'cancelled':
+      return 'cancelled';
+    case 'completed':
+      return 'completed';
+    case 'heating':
+      return 'heating';
+    case 'error':
+      return 'error';
+    case 'calibrate_doing':
+      return 'calibrate_doing';
+  }
+}
 
 /**
  * Temperature data structure
@@ -96,12 +162,77 @@ export interface PrintJobState {
   currentLayer: number;
   /** Total layers in the job */
   totalLayers: number;
-  /** Estimated remaining time in seconds */
-  estimatedTimeRemaining: number;
+  /** Estimated remaining time in minutes */
+  remainingTimeMinutes: number;
   /** Total print time in seconds */
-  totalPrintTime: number;
+  totalPrintTimeSeconds: number;
   /** Time elapsed since print started in seconds */
-  elapsedTime: number;
+  elapsedTimeSeconds: number;
+  /** Firmware-style ETA string (HH:MM) */
+  formattedEta: string;
+}
+
+/**
+ * Scenario preset IDs for QA / regression testing
+ */
+export type ScenarioPresetId =
+  | 'idle'
+  | 'heating'
+  | 'printing'
+  | 'paused'
+  | 'pausing'
+  | 'completed'
+  | 'cancelled'
+  | 'error'
+  | 'cooling-after-completion';
+
+/**
+ * Explicit state injection payload used by the QA console
+ */
+export interface PrinterScenario {
+  machineStatus?: PrintJobStatus;
+  printJobStatus?: PrintJobStatus;
+  fileName?: string | null;
+  progressPercent?: number;
+  currentLayer?: number;
+  totalLayers?: number;
+  elapsedTimeSeconds?: number;
+  remainingTimeMinutes?: number;
+  totalPrintTimeSeconds?: number;
+  formattedEta?: string;
+  temperatures?: Partial<TemperatureState>;
+  fan?: Partial<FanState>;
+  ledEnabled?: boolean;
+  estimatedRightLen?: number;
+  estimatedRightWeight?: number;
+  estimatedLeftLen?: number;
+  estimatedLeftWeight?: number;
+  hasLeftFilament?: boolean;
+  hasRightFilament?: boolean;
+  leftFilamentType?: string;
+  rightFilamentType?: string;
+  errorCode?: string;
+  materialStation?: {
+    currentSlot?: number;
+    currentLoadSlot?: number;
+    slots?: Array<{
+      slotId: number;
+      hasFilament?: boolean;
+      materialName?: string;
+      materialColor?: string;
+    }>;
+  };
+  currentFileMetadata?: Partial<PrinterFile>;
+}
+
+/**
+ * Named scenario preset definition
+ */
+export interface ScenarioPreset {
+  id: ScenarioPresetId;
+  label: string;
+  description: string;
+  scenario: PrinterScenario;
 }
 
 /**
@@ -290,13 +421,13 @@ export interface PrinterState {
   cumulativePrintTime: number;
   /** Cumulative filament used across all jobs in meters */
   cumulativeFilament: number;
-  /** Estimated right filament length for current job in mm */
+  /** Total estimated right filament length for the current job in mm */
   estimatedRightLen: number;
-  /** Estimated right filament weight for current job in grams */
+  /** Total estimated right filament weight for the current job in grams */
   estimatedRightWeight: number;
-  /** Estimated left filament length for current job in mm (AD5X only) */
+  /** Total estimated left filament length for the current job in mm (AD5X only) */
   estimatedLeftLen: number;
-  /** Estimated left filament weight for current job in grams (AD5X only) */
+  /** Total estimated left filament weight for the current job in grams (AD5X only) */
   estimatedLeftWeight: number;
   /** Whether filament is detected in left extruder (AD5X only) */
   hasLeftFilament: boolean;
@@ -481,6 +612,19 @@ export interface EmulatorConfig {
   cumulativeFilament: number;
   /** Custom discovery overriding options */
   discoveryConfig: DiscoveryConfig;
+}
+
+/**
+ * Real protocol log entry emitted by the main process
+ */
+export interface ProtocolLogEntry {
+  id: string;
+  timestamp: string;
+  protocol: 'http' | 'tcp' | 'discovery' | 'system';
+  direction: 'incoming' | 'outgoing' | 'internal';
+  level: 'info' | 'warning' | 'error';
+  summary: string;
+  payload?: unknown;
 }
 
 /**

@@ -29,11 +29,25 @@ npm run lint:fix
 # Build
 npm run build
 
+# Regression smoke test
+npm run smoke:qa
+
 # Package
 npm run build:win    # Windows
 npm run build:mac    # macOS
 npm run build:linux  # Linux
 ```
+
+## Manual QA Checklist
+
+- Set the printer to `completed` in the QA Console and confirm that state stays visible and a new print cannot start from the File Manager or `Run Auto Lifecycle`.
+- Trigger `setClearPlatform` through the HTTP control path or click `Clear to Ready`, then confirm a new print can start again.
+- Compare the QA Console live `/detail.detail` preview against `POST /detail` and confirm the status, `estimatedTime`, `printDuration`, and `printEta` values match.
+- Verify time units stay correct: `elapsedTimeSeconds` and `printDuration` are seconds, `remainingTime` is minutes, and `formattedEta` / `printEta` stays a firmware-style string or an empty string when intentionally blank.
+
+## Regression Smoke Test
+
+Run `npm run smoke:qa` to validate sticky terminal state blocking, live `/detail` status mapping, ETA/time units, blank firmware ETA handling, and completed-state persistence.
 
 ## Project Structure
 

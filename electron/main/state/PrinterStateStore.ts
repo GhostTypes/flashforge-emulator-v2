@@ -1,10 +1,10 @@
 /**
  * @fileoverview
- * Printer State Store - Single source of truth for all printer state
+ * Printer State Store - single source of truth for emulator state and QA scenarios.
  *
- * Implements SSOT (Single Source of Truth) principle.
- * All state mutations go through this store.
- * Emits events when state changes for subscribers.
+ * The store supports two complementary modes:
+ * - realistic auto simulation for end-to-end print lifecycle testing
+ * - exact manual state injection for regression reproduction
  *
  * @packageDocumentation
  */
@@ -14,19 +14,20 @@ import type {
   EmulatorConfig,
   MaterialSlot,
   MaterialSlotUpdate,
+  PrintJobState,
   PrintJobStatus,
   PrinterFile,
   PrinterModel,
   PrinterProfile,
+  PrinterScenario,
   PrinterState,
+  ScenarioPreset,
+  ScenarioPresetId,
   SimulationMode,
   TemperatureState,
 } from '../../../shared/types/printer';
-import { DEFAULT_CONFIG, PRINTER_PROFILES } from '../../../shared/types/printer';
+import { DEFAULT_CONFIG, PRINTER_PROFILES, canStartNewPrint } from '../../../shared/types/printer';
 
-/**
- * State change event types
- */
 export type StateChangeEvent =
   | 'state-changed'
   | 'temperature-changed'
@@ -34,23 +35,25 @@ export type StateChangeEvent =
   | 'job-changed'
   | 'cumulative-stats-changed';
 
-/**
- * Default temperature state
- */
+const AMBIENT_TEMPERATURE = 25;
+const DEFAULT_JOB_FILE = 'qa-regression-test.gcode';
+const DEFAULT_TOTAL_LAYERS = 240;
+const DEFAULT_TOTAL_PRINT_TIME_SECONDS = 3720;
+const DEFAULT_ESTIMATED_RIGHT_LEN_MM = 14250;
+const DEFAULT_ESTIMATED_RIGHT_WEIGHT_G = 96;
+const DEFAULT_PAUSE_DELAY_MS = 500;
+
 const DEFAULT_TEMPERATURE: TemperatureState = {
-  nozzleCurrent: 25,
+  nozzleCurrent: AMBIENT_TEMPERATURE,
   nozzleTarget: 0,
   leftNozzleCurrent: 0,
   leftNozzleTarget: 0,
-  bedCurrent: 25,
+  bedCurrent: AMBIENT_TEMPERATURE,
   bedTarget: 0,
-  chamberCurrent: 25,
+  chamberCurrent: AMBIENT_TEMPERATURE,
   chamberTarget: 0,
 } as const;
 
-/**
- * Default material slot (empty)
- */
 const EMPTY_SLOT: MaterialSlot = {
   slotId: 0,
   hasFilament: false,
@@ -58,9 +61,90 @@ const EMPTY_SLOT: MaterialSlot = {
   materialColor: '#000000',
 } as const;
 
-/**
- * Creates default printer state for a given model
- */
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function roundToWholeNumber(value: number): number {
+  return Number.isFinite(value) ? Math.round(value) : 0;
+}
+
+function buildMachineName(profile: PrinterProfile): string {
+  return profile.hasMaterialStation ? 'AD5X' : `${profile.name} Emulator`;
+}
+
+function createIdlePrintJob(): PrintJobState {
+  return {
+    status: 'idle',
+    currentFile: null,
+    progress: 0,
+    currentLayer: 0,
+    totalLayers: 0,
+    remainingTimeMinutes: 0,
+    totalPrintTimeSeconds: 0,
+    elapsedTimeSeconds: 0,
+    formattedEta: '',
+  };
+}
+
+function createSyntheticFile(filename: string, totalPrintTimeSeconds: number): PrinterFile {
+  return {
+    name: filename,
+    path: `/data/${filename}`,
+    size: 2_500_000,
+    printTime: totalPrintTimeSeconds,
+    is3mf: filename.toLowerCase().endsWith('.3mf'),
+    gcodeToolCnt: 1,
+    gcodeToolDatas: [],
+    useMatlStation: false,
+    totalFilamentWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+    thumbnail: '',
+  };
+}
+
+function buildDefaultTargets(profile: PrinterProfile): {
+  nozzle: number;
+  leftNozzle: number;
+  bed: number;
+  chamber: number;
+} {
+  return {
+    nozzle: 220,
+    leftNozzle: profile.hasMaterialStation ? 220 : 0,
+    bed: 60,
+    chamber: profile.hasChamberTemp ? 35 : 0,
+  };
+}
+
+function formatEtaFromMinutes(minutes: number): string {
+  const safeMinutes = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(safeMinutes / 60);
+  const mins = safeMinutes % 60;
+  return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+}
+
+function formatEtaFromSeconds(seconds: number): string {
+  return formatEtaFromMinutes(seconds / 60);
+}
+
+function roundRemainingMinutesFromSeconds(seconds: number): number {
+  const safeSeconds = Math.max(0, seconds);
+  return safeSeconds === 0 ? 0 : Math.round(safeSeconds / 60);
+}
+
+function isJobStateVisible(status: PrintJobStatus): boolean {
+  return (
+    status === 'heating' ||
+    status === 'printing' ||
+    status === 'paused' ||
+    status === 'pausing' ||
+    status === 'completed' ||
+    status === 'cancel' ||
+    status === 'cancelled' ||
+    status === 'error'
+  );
+}
+
 function createDefaultState(model: PrinterModel): PrinterState {
   const profile = PRINTER_PROFILES[model];
 
@@ -70,19 +154,10 @@ function createDefaultState(model: PrinterModel): PrinterState {
     machineStatus: 'idle',
     temperature: { ...DEFAULT_TEMPERATURE },
     position: { x: 0, y: 0, z: 0, e: 0, positioningMode: 'absolute' },
-    printJob: {
-      status: 'idle',
-      currentFile: null,
-      progress: 0,
-      currentLayer: 0,
-      totalLayers: 0,
-      estimatedTimeRemaining: 0,
-      totalPrintTime: 0,
-      elapsedTime: 0,
-    },
+    printJob: createIdlePrintJob(),
     materialStation: {
       hasMatlStation: profile.hasMaterialStation,
-      currentSlot: 0,
+      currentSlot: profile.hasMaterialStation ? 1 : 0,
       currentLoadSlot: 0,
       slotCount: profile.hasMaterialStation ? 4 : 0,
       slots: profile.hasMaterialStation
@@ -111,7 +186,7 @@ function createDefaultState(model: PrinterModel): PrinterState {
     tcpControlActive: false,
     serialNumber: DEFAULT_CONFIG.serialNumber,
     checkCode: DEFAULT_CONFIG.checkCode,
-    machineName: profile.hasMaterialStation ? 'AD5X' : `${profile.name} Emulator`,
+    machineName: buildMachineName(profile),
     firmwareVersion: profile.defaultFirmware,
     macAddress: '00:11:22:33:44:55',
     ipAddress: '192.168.1.100',
@@ -141,56 +216,33 @@ function createDefaultState(model: PrinterModel): PrinterState {
   };
 }
 
-/**
- * Printer State Store
- *
- * Single source of truth for all printer state.
- * Uses EventEmitter for state change notifications.
- */
 export class PrinterStateStore extends EventEmitter {
   #state: PrinterState;
   #simulationMode: SimulationMode = DEFAULT_CONFIG.simulationMode;
-  #simulationSpeed: number = DEFAULT_CONFIG.simulationSpeed;
+  #simulationSpeed = DEFAULT_CONFIG.simulationSpeed;
   #config: EmulatorConfig = { ...DEFAULT_CONFIG };
+  #pauseTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-  /**
-   * Gets the current printer state (readonly)
-   */
   get state(): Readonly<PrinterState> {
     return this.#state;
   }
 
-  /**
-   * Gets the current simulation mode
-   */
   get simulationMode(): SimulationMode {
     return this.#simulationMode;
   }
 
-  /**
-   * Sets the simulation mode
-   */
   set simulationMode(mode: SimulationMode) {
     this.#simulationMode = mode;
   }
 
-  /**
-   * Gets the simulation speed multiplier
-   */
   get simulationSpeed(): number {
     return this.#simulationSpeed;
   }
 
-  /**
-   * Sets the simulation speed multiplier
-   */
   set simulationSpeed(speed: number) {
-    this.#simulationSpeed = Math.max(1, Math.min(1000, speed));
+    this.#simulationSpeed = Math.max(1, Math.min(1000, Math.round(speed)));
   }
 
-  /**
-   * Gets the emulator config
-   */
   get config(): Readonly<EmulatorConfig> {
     return this.#config;
   }
@@ -200,36 +252,36 @@ export class PrinterStateStore extends EventEmitter {
     this.#state = createDefaultState(DEFAULT_CONFIG.selectedModel);
   }
 
-  /**
-   * Initializes the store with a specific printer model
-   */
   initialize(model: PrinterModel): void {
+    this.#clearPauseTimeout();
     this.#state = createDefaultState(model);
     this.#config.selectedModel = model;
-    const profile = PRINTER_PROFILES[model];
     this.#state.serialNumber = this.#config.serialNumber;
     this.#state.checkCode = this.#config.checkCode;
-    this.#state.machineName = `${profile.name} Emulator`;
-    // Load cumulative stats from config for persistence
     this.#state.cumulativePrintTime = this.#config.cumulativePrintTime;
     this.#state.cumulativeFilament = this.#config.cumulativeFilament;
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Resets the state to default for the current model
-   */
   reset(): void {
     this.initialize(this.#state.model);
   }
 
-  /**
-   * Updates the emulator configuration
-   */
   updateConfig(config: Partial<EmulatorConfig>): void {
-    this.#config = { ...this.#config, ...config };
+    const nextDiscoveryConfig =
+      config.discoveryConfig !== undefined
+        ? {
+            ...this.#config.discoveryConfig,
+            ...config.discoveryConfig,
+          }
+        : this.#config.discoveryConfig;
 
-    // Update state items that depend on config
+    this.#config = {
+      ...this.#config,
+      ...config,
+      discoveryConfig: nextDiscoveryConfig,
+    };
+
     if (config.serialNumber !== undefined) {
       this.#state.serialNumber = config.serialNumber;
     }
@@ -240,7 +292,7 @@ export class PrinterStateStore extends EventEmitter {
       this.#simulationMode = config.simulationMode;
     }
     if (config.simulationSpeed !== undefined) {
-      this.#simulationSpeed = config.simulationSpeed;
+      this.#simulationSpeed = Math.max(1, Math.min(1000, Math.round(config.simulationSpeed)));
     }
     if (config.cumulativePrintTime !== undefined) {
       this.#state.cumulativePrintTime = config.cumulativePrintTime;
@@ -248,42 +300,383 @@ export class PrinterStateStore extends EventEmitter {
     if (config.cumulativeFilament !== undefined) {
       this.#state.cumulativeFilament = config.cumulativeFilament;
     }
-    if (config.discoveryConfig !== undefined) {
-      this.#config.discoveryConfig = {
-        ...this.#config.discoveryConfig,
-        ...config.discoveryConfig,
-      };
-    }
 
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Sets the machine status
-   */
-  setMachineStatus(status: PrintJobStatus): void {
-    if (this.#state.machineStatus !== status) {
-      this.#state.machineStatus = status;
-      this.#state.printJob.status = status;
-      this.emit('state-changed', this.#state);
-    }
+  getProfile(): PrinterProfile {
+    return PRINTER_PROFILES[this.#state.model];
   }
 
-  /**
-   * Updates temperature values
-   */
+  getScenarioPresets(): readonly ScenarioPreset[] {
+    const profile = this.getProfile();
+    const fileName =
+      this.#state.printJob.currentFile ?? this.#state.files[0]?.name ?? DEFAULT_JOB_FILE;
+    const totalPrintTimeSeconds =
+      this.#state.printJob.totalPrintTimeSeconds > 0
+        ? this.#state.printJob.totalPrintTimeSeconds
+        : DEFAULT_TOTAL_PRINT_TIME_SECONDS;
+    const totalLayers =
+      this.#state.printJob.totalLayers > 0
+        ? this.#state.printJob.totalLayers
+        : DEFAULT_TOTAL_LAYERS;
+    const defaultTargets = buildDefaultTargets(profile);
+
+    return [
+      {
+        id: 'idle',
+        label: 'Idle',
+        description: 'Clear active job state and return the machine to an idle baseline.',
+        scenario: {
+          machineStatus: 'idle',
+          printJobStatus: 'idle',
+          fileName: null,
+          progressPercent: 0,
+          currentLayer: 0,
+          totalLayers: 0,
+          elapsedTimeSeconds: 0,
+          remainingTimeMinutes: 0,
+          totalPrintTimeSeconds: 0,
+          formattedEta: '',
+          temperatures: {
+            nozzleCurrent: AMBIENT_TEMPERATURE,
+            nozzleTarget: 0,
+            leftNozzleCurrent: profile.hasMaterialStation ? AMBIENT_TEMPERATURE : 0,
+            leftNozzleTarget: 0,
+            bedCurrent: AMBIENT_TEMPERATURE,
+            bedTarget: 0,
+            chamberCurrent: profile.hasChamberTemp ? AMBIENT_TEMPERATURE : 0,
+            chamberTarget: 0,
+          },
+          fan: {
+            coolingFanSpeed: 0,
+            coolingLeftFanSpeed: 0,
+            chamberFanSpeed: 0,
+            externalFanEnabled: false,
+            internalFanEnabled: false,
+          },
+          ledEnabled: false,
+          estimatedRightLen: 0,
+          estimatedRightWeight: 0,
+          estimatedLeftLen: 0,
+          estimatedLeftWeight: 0,
+          errorCode: '',
+        },
+      },
+      {
+        id: 'heating',
+        label: 'Heating',
+        description: 'Printer is preparing a job and ramping temperatures toward targets.',
+        scenario: {
+          machineStatus: 'heating',
+          printJobStatus: 'heating',
+          fileName,
+          progressPercent: 0,
+          currentLayer: 0,
+          totalLayers,
+          elapsedTimeSeconds: 0,
+          remainingTimeMinutes: roundRemainingMinutesFromSeconds(totalPrintTimeSeconds),
+          totalPrintTimeSeconds,
+          formattedEta: formatEtaFromSeconds(totalPrintTimeSeconds),
+          temperatures: {
+            nozzleCurrent: 45,
+            nozzleTarget: defaultTargets.nozzle,
+            leftNozzleCurrent: profile.hasMaterialStation ? 42 : 0,
+            leftNozzleTarget: defaultTargets.leftNozzle,
+            bedCurrent: 35,
+            bedTarget: defaultTargets.bed,
+            chamberCurrent: profile.hasChamberTemp ? 28 : AMBIENT_TEMPERATURE,
+            chamberTarget: defaultTargets.chamber,
+          },
+          fan: {
+            coolingFanSpeed: 0,
+            coolingLeftFanSpeed: 0,
+            chamberFanSpeed: 0,
+          },
+          estimatedRightLen: DEFAULT_ESTIMATED_RIGHT_LEN_MM,
+          estimatedRightWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+        },
+      },
+      {
+        id: 'printing',
+        label: 'Printing',
+        description: 'Actively printing with non-zero elapsed time, ETA, layers, and fans.',
+        scenario: {
+          machineStatus: 'printing',
+          printJobStatus: 'printing',
+          fileName,
+          progressPercent: 47,
+          currentLayer: Math.round(totalLayers * 0.47),
+          totalLayers,
+          elapsedTimeSeconds: 1_980,
+          remainingTimeMinutes: 29,
+          totalPrintTimeSeconds,
+          formattedEta: '00:29',
+          temperatures: {
+            nozzleCurrent: defaultTargets.nozzle,
+            nozzleTarget: defaultTargets.nozzle,
+            leftNozzleCurrent: profile.hasMaterialStation ? defaultTargets.leftNozzle : 0,
+            leftNozzleTarget: defaultTargets.leftNozzle,
+            bedCurrent: defaultTargets.bed,
+            bedTarget: defaultTargets.bed,
+            chamberCurrent: profile.hasChamberTemp ? defaultTargets.chamber : AMBIENT_TEMPERATURE,
+            chamberTarget: defaultTargets.chamber,
+          },
+          fan: {
+            coolingFanSpeed: 85,
+            coolingLeftFanSpeed: profile.hasMaterialStation ? 70 : 0,
+            chamberFanSpeed: profile.hasChamberTemp ? 45 : 0,
+          },
+          ledEnabled: true,
+          estimatedRightLen: DEFAULT_ESTIMATED_RIGHT_LEN_MM,
+          estimatedRightWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+        },
+      },
+      {
+        id: 'paused',
+        label: 'Paused',
+        description: 'Paused mid-print with job metadata preserved for resume testing.',
+        scenario: {
+          machineStatus: 'paused',
+          printJobStatus: 'paused',
+          fileName,
+          progressPercent: 52,
+          currentLayer: Math.round(totalLayers * 0.52),
+          totalLayers,
+          elapsedTimeSeconds: 2_160,
+          remainingTimeMinutes: 26,
+          totalPrintTimeSeconds,
+          formattedEta: '00:26',
+          temperatures: {
+            nozzleCurrent: defaultTargets.nozzle,
+            nozzleTarget: defaultTargets.nozzle,
+            leftNozzleCurrent: profile.hasMaterialStation ? defaultTargets.leftNozzle : 0,
+            leftNozzleTarget: defaultTargets.leftNozzle,
+            bedCurrent: defaultTargets.bed,
+            bedTarget: defaultTargets.bed,
+            chamberCurrent: profile.hasChamberTemp ? defaultTargets.chamber : AMBIENT_TEMPERATURE,
+            chamberTarget: defaultTargets.chamber,
+          },
+          fan: {
+            coolingFanSpeed: 25,
+            coolingLeftFanSpeed: profile.hasMaterialStation ? 20 : 0,
+            chamberFanSpeed: profile.hasChamberTemp ? 20 : 0,
+          },
+          estimatedRightLen: DEFAULT_ESTIMATED_RIGHT_LEN_MM,
+          estimatedRightWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+        },
+      },
+      {
+        id: 'pausing',
+        label: 'Pausing',
+        description:
+          'Transient pause transition for state-change and notification regression tests.',
+        scenario: {
+          machineStatus: 'pausing',
+          printJobStatus: 'pausing',
+          fileName,
+          progressPercent: 52,
+          currentLayer: Math.round(totalLayers * 0.52),
+          totalLayers,
+          elapsedTimeSeconds: 2_160,
+          remainingTimeMinutes: 26,
+          totalPrintTimeSeconds,
+          formattedEta: '00:26',
+          temperatures: {
+            nozzleCurrent: defaultTargets.nozzle,
+            nozzleTarget: defaultTargets.nozzle,
+            leftNozzleCurrent: profile.hasMaterialStation ? defaultTargets.leftNozzle : 0,
+            leftNozzleTarget: defaultTargets.leftNozzle,
+            bedCurrent: defaultTargets.bed,
+            bedTarget: defaultTargets.bed,
+            chamberCurrent: profile.hasChamberTemp ? defaultTargets.chamber : AMBIENT_TEMPERATURE,
+            chamberTarget: defaultTargets.chamber,
+          },
+          fan: {
+            coolingFanSpeed: 40,
+            coolingLeftFanSpeed: profile.hasMaterialStation ? 30 : 0,
+            chamberFanSpeed: profile.hasChamberTemp ? 20 : 0,
+          },
+          estimatedRightLen: DEFAULT_ESTIMATED_RIGHT_LEN_MM,
+          estimatedRightWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+        },
+      },
+      {
+        id: 'completed',
+        label: 'Completed',
+        description: 'A true completed state that remains visible until explicitly cleared.',
+        scenario: {
+          machineStatus: 'completed',
+          printJobStatus: 'completed',
+          fileName,
+          progressPercent: 100,
+          currentLayer: totalLayers,
+          totalLayers,
+          elapsedTimeSeconds: totalPrintTimeSeconds,
+          remainingTimeMinutes: 0,
+          totalPrintTimeSeconds,
+          formattedEta: '00:00',
+          temperatures: {
+            nozzleCurrent: 90,
+            nozzleTarget: 0,
+            leftNozzleCurrent: profile.hasMaterialStation ? 88 : 0,
+            leftNozzleTarget: 0,
+            bedCurrent: 55,
+            bedTarget: 0,
+            chamberCurrent: profile.hasChamberTemp ? 34 : AMBIENT_TEMPERATURE,
+            chamberTarget: 0,
+          },
+          fan: {
+            coolingFanSpeed: 10,
+            coolingLeftFanSpeed: profile.hasMaterialStation ? 10 : 0,
+            chamberFanSpeed: profile.hasChamberTemp ? 15 : 0,
+          },
+          ledEnabled: true,
+          estimatedRightLen: DEFAULT_ESTIMATED_RIGHT_LEN_MM,
+          estimatedRightWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+        },
+      },
+      {
+        id: 'cancelled',
+        label: 'Cancelled',
+        description:
+          'Cancelled print with the previous job still visible for transition validation.',
+        scenario: {
+          machineStatus: 'cancelled',
+          printJobStatus: 'cancelled',
+          fileName,
+          progressPercent: 31,
+          currentLayer: Math.round(totalLayers * 0.31),
+          totalLayers,
+          elapsedTimeSeconds: 1_140,
+          remainingTimeMinutes: 0,
+          totalPrintTimeSeconds,
+          formattedEta: '',
+          temperatures: {
+            nozzleCurrent: 70,
+            nozzleTarget: 0,
+            leftNozzleCurrent: profile.hasMaterialStation ? 66 : 0,
+            leftNozzleTarget: 0,
+            bedCurrent: 40,
+            bedTarget: 0,
+            chamberCurrent: profile.hasChamberTemp ? 30 : AMBIENT_TEMPERATURE,
+            chamberTarget: 0,
+          },
+          fan: {
+            coolingFanSpeed: 0,
+            coolingLeftFanSpeed: 0,
+            chamberFanSpeed: 0,
+          },
+          estimatedRightLen: DEFAULT_ESTIMATED_RIGHT_LEN_MM,
+          estimatedRightWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+          errorCode: '',
+        },
+      },
+      {
+        id: 'error',
+        label: 'Error',
+        description: 'Job failure scenario with an explicit error code and preserved job context.',
+        scenario: {
+          machineStatus: 'error',
+          printJobStatus: 'error',
+          fileName,
+          progressPercent: 67,
+          currentLayer: Math.round(totalLayers * 0.67),
+          totalLayers,
+          elapsedTimeSeconds: 2_520,
+          remainingTimeMinutes: 20,
+          totalPrintTimeSeconds,
+          formattedEta: '00:20',
+          temperatures: {
+            nozzleCurrent: 205,
+            nozzleTarget: 205,
+            leftNozzleCurrent: profile.hasMaterialStation ? 205 : 0,
+            leftNozzleTarget: defaultTargets.leftNozzle,
+            bedCurrent: 58,
+            bedTarget: 60,
+            chamberCurrent: profile.hasChamberTemp ? 33 : AMBIENT_TEMPERATURE,
+            chamberTarget: defaultTargets.chamber,
+          },
+          fan: {
+            coolingFanSpeed: 90,
+            coolingLeftFanSpeed: profile.hasMaterialStation ? 90 : 0,
+            chamberFanSpeed: profile.hasChamberTemp ? 40 : 0,
+          },
+          estimatedRightLen: DEFAULT_ESTIMATED_RIGHT_LEN_MM,
+          estimatedRightWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+          errorCode: 'EMULATED_PRINT_ERROR',
+        },
+      },
+      {
+        id: 'cooling-after-completion',
+        label: 'Cooling',
+        description: 'Completed print that is still hot, for printer-cooled notification testing.',
+        scenario: {
+          machineStatus: 'completed',
+          printJobStatus: 'completed',
+          fileName,
+          progressPercent: 100,
+          currentLayer: totalLayers,
+          totalLayers,
+          elapsedTimeSeconds: totalPrintTimeSeconds,
+          remainingTimeMinutes: 0,
+          totalPrintTimeSeconds,
+          formattedEta: '00:00',
+          temperatures: {
+            nozzleCurrent: 120,
+            nozzleTarget: 0,
+            leftNozzleCurrent: profile.hasMaterialStation ? 118 : 0,
+            leftNozzleTarget: 0,
+            bedCurrent: 48,
+            bedTarget: 0,
+            chamberCurrent: profile.hasChamberTemp ? 36 : AMBIENT_TEMPERATURE,
+            chamberTarget: 0,
+          },
+          fan: {
+            coolingFanSpeed: 60,
+            coolingLeftFanSpeed: profile.hasMaterialStation ? 45 : 0,
+            chamberFanSpeed: profile.hasChamberTemp ? 30 : 0,
+          },
+          estimatedRightLen: DEFAULT_ESTIMATED_RIGHT_LEN_MM,
+          estimatedRightWeight: DEFAULT_ESTIMATED_RIGHT_WEIGHT_G,
+        },
+      },
+    ] as const;
+  }
+
+  setMachineStatus(status: PrintJobStatus): void {
+    if (this.#state.machineStatus === status) {
+      return;
+    }
+
+    this.#clearPauseTimeout();
+    this.#state.machineStatus = status;
+    this.emit('state-changed', this.#state);
+  }
+
+  setPrintJobStatus(status: PrintJobStatus): void {
+    if (this.#state.printJob.status === status) {
+      return;
+    }
+
+    this.#clearPauseTimeout();
+    this.#state.printJob.status = status;
+    this.emit('job-changed', this.#state.printJob);
+    this.emit('state-changed', this.#state);
+  }
+
   updateTemperature(temps: Partial<TemperatureState>): void {
     this.#state.temperature = { ...this.#state.temperature, ...temps };
     this.emit('temperature-changed', this.#state.temperature);
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Sets target temperatures for heating
-   */
   setTargetTemperatures(nozzle: number, bed: number, chamber?: number): void {
     this.#state.temperature.nozzleTarget = nozzle;
     this.#state.temperature.bedTarget = bed;
+    if (this.getProfile().hasMaterialStation) {
+      this.#state.temperature.leftNozzleTarget = nozzle;
+    }
     if (chamber !== undefined) {
       this.#state.temperature.chamberTarget = chamber;
     }
@@ -291,15 +684,11 @@ export class PrinterStateStore extends EventEmitter {
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Simulates temperature changes (for auto-simulation mode)
-   */
   simulateTemperatures(): void {
     const temp = this.#state.temperature;
     const profile = this.getProfile();
     let changed = false;
 
-    // Nozzle heating/cooling
     if (temp.nozzleCurrent < temp.nozzleTarget) {
       temp.nozzleCurrent = Math.min(temp.nozzleTarget, temp.nozzleCurrent + 2);
       changed = true;
@@ -308,7 +697,6 @@ export class PrinterStateStore extends EventEmitter {
       changed = true;
     }
 
-    // Left nozzle heating/cooling (AD5X dual extrusion)
     if (profile.hasMaterialStation) {
       if (temp.leftNozzleCurrent < temp.leftNozzleTarget) {
         temp.leftNozzleCurrent = Math.min(temp.leftNozzleTarget, temp.leftNozzleCurrent + 2);
@@ -319,7 +707,6 @@ export class PrinterStateStore extends EventEmitter {
       }
     }
 
-    // Bed heating/cooling
     if (temp.bedCurrent < temp.bedTarget) {
       temp.bedCurrent = Math.min(temp.bedTarget, temp.bedCurrent + 1);
       changed = true;
@@ -328,13 +715,14 @@ export class PrinterStateStore extends EventEmitter {
       changed = true;
     }
 
-    // Chamber heating/cooling
-    if (temp.chamberCurrent < temp.chamberTarget) {
-      temp.chamberCurrent = Math.min(temp.chamberTarget, temp.chamberCurrent + 0.5);
-      changed = true;
-    } else if (temp.chamberCurrent > temp.chamberTarget) {
-      temp.chamberCurrent = Math.max(temp.chamberTarget, temp.chamberCurrent - 0.3);
-      changed = true;
+    if (profile.hasChamberTemp) {
+      if (temp.chamberCurrent < temp.chamberTarget) {
+        temp.chamberCurrent = Math.min(temp.chamberTarget, temp.chamberCurrent + 0.5);
+        changed = true;
+      } else if (temp.chamberCurrent > temp.chamberTarget) {
+        temp.chamberCurrent = Math.max(temp.chamberTarget, temp.chamberCurrent - 0.3);
+        changed = true;
+      }
     }
 
     if (changed) {
@@ -343,18 +731,12 @@ export class PrinterStateStore extends EventEmitter {
     }
   }
 
-  /**
-   * Updates position values
-   */
   updatePosition(position: Partial<{ x: number; y: number; z: number; e: number }>): void {
     Object.assign(this.#state.position, position);
     this.emit('position-changed', this.#state.position);
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Homes all axes (resets position to zero)
-   */
   homeAxes(axes?: 'x' | 'y' | 'z' | 'all'): void {
     const currentMode = this.#state.position.positioningMode;
     if (!axes || axes === 'all') {
@@ -373,178 +755,444 @@ export class PrinterStateStore extends EventEmitter {
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Sets the positioning mode (absolute or relative)
-   */
   setPositioningMode(mode: 'absolute' | 'relative'): void {
     this.#state.position.positioningMode = mode;
     this.emit('position-changed', this.#state.position);
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Starts a print job
-   */
-  startPrint(filename: string, estimatedTime?: number): void {
+  startPrint(filename: string, totalPrintTimeSeconds = DEFAULT_TOTAL_PRINT_TIME_SECONDS): boolean {
+    if (!canStartNewPrint(this.#state.machineStatus)) {
+      return false;
+    }
+
+    this.#clearPauseTimeout();
+    this.#ensureFileExists(filename, totalPrintTimeSeconds);
+
+    const profile = this.getProfile();
+    const defaultTargets = buildDefaultTargets(profile);
+    const totalLayers =
+      this.#state.printJob.totalLayers > 0
+        ? this.#state.printJob.totalLayers
+        : DEFAULT_TOTAL_LAYERS;
+    const safeTotalPrintTimeSeconds = Math.max(60, roundToWholeNumber(totalPrintTimeSeconds));
+
     this.#state.printJob = {
       status: 'heating',
       currentFile: filename,
       progress: 0,
       currentLayer: 0,
-      totalLayers: estimatedTime ? Math.floor(estimatedTime / 60) : 100,
-      estimatedTimeRemaining: estimatedTime ?? 3600,
-      totalPrintTime: estimatedTime ?? 3600,
-      elapsedTime: 0,
+      totalLayers,
+      remainingTimeMinutes: roundRemainingMinutesFromSeconds(safeTotalPrintTimeSeconds),
+      totalPrintTimeSeconds: safeTotalPrintTimeSeconds,
+      elapsedTimeSeconds: 0,
+      formattedEta: formatEtaFromSeconds(safeTotalPrintTimeSeconds),
     };
+
     this.#state.machineStatus = 'heating';
+    this.#state.errorCode = '';
+    this.#state.estimatedRightLen = this.#state.estimatedRightLen || DEFAULT_ESTIMATED_RIGHT_LEN_MM;
+    this.#state.estimatedRightWeight =
+      this.#state.estimatedRightWeight || DEFAULT_ESTIMATED_RIGHT_WEIGHT_G;
+
+    if (this.#state.temperature.nozzleTarget <= 0) {
+      this.#state.temperature.nozzleTarget = defaultTargets.nozzle;
+    }
+    if (profile.hasMaterialStation && this.#state.temperature.leftNozzleTarget <= 0) {
+      this.#state.temperature.leftNozzleTarget = defaultTargets.leftNozzle;
+    }
+    if (this.#state.temperature.bedTarget <= 0) {
+      this.#state.temperature.bedTarget = defaultTargets.bed;
+    }
+    if (profile.hasChamberTemp && this.#state.temperature.chamberTarget <= 0) {
+      this.#state.temperature.chamberTarget = defaultTargets.chamber;
+    }
+
     this.emit('job-changed', this.#state.printJob);
+    this.emit('temperature-changed', this.#state.temperature);
     this.emit('state-changed', this.#state);
+    return true;
   }
 
-  /**
-   * Pauses the current print job
-   * Transitions to 'pausing' state first, then 'paused' after 500ms delay
-   * to match real printer behavior
-   */
   pausePrint(): void {
-    if (this.#state.printJob.status === 'printing') {
-      // First transition to 'pausing' state
-      this.#state.printJob.status = 'pausing';
-      this.#state.machineStatus = 'pausing';
-      this.emit('job-changed', this.#state.printJob);
-      this.emit('state-changed', this.#state);
-
-      // Then transition to 'paused' after 500ms delay
-      setTimeout(() => {
-        this.#state.printJob.status = 'paused';
-        this.#state.machineStatus = 'paused';
-        this.emit('job-changed', this.#state.printJob);
-        this.emit('state-changed', this.#state);
-      }, 500);
+    if (this.#state.printJob.status !== 'printing') {
+      return;
     }
+
+    this.#clearPauseTimeout();
+    this.#setLifecycleStatuses('pausing', 'pausing');
+
+    this.#pauseTimeoutId = setTimeout(() => {
+      this.#pauseTimeoutId = null;
+      if (this.#state.printJob.status === 'pausing') {
+        this.#setLifecycleStatuses('paused', 'paused');
+      }
+    }, DEFAULT_PAUSE_DELAY_MS);
   }
 
-  /**
-   * Resumes the current print job
-   */
   resumePrint(): void {
-    if (this.#state.printJob.status === 'paused') {
-      this.#state.printJob.status = 'printing';
-      this.#state.machineStatus = 'busy';
-      this.emit('job-changed', this.#state.printJob);
-      this.emit('state-changed', this.#state);
+    if (this.#state.printJob.status !== 'paused') {
+      return;
     }
+
+    this.#clearPauseTimeout();
+    this.#setLifecycleStatuses('printing', 'printing');
   }
 
-  /**
-   * Stops the current print job
-   */
-  stopPrint(): void {
-    this.#state.printJob = {
-      status: 'idle',
-      currentFile: null,
-      progress: 0,
-      currentLayer: 0,
-      totalLayers: 0,
-      estimatedTimeRemaining: 0,
-      totalPrintTime: 0,
-      elapsedTime: 0,
-    };
-    this.#state.machineStatus = 'idle';
-    // Cool down
+  cancelPrint(): void {
+    if (!this.#state.printJob.currentFile) {
+      return;
+    }
+
+    this.#clearPauseTimeout();
+    this.#state.printJob.status = 'cancelled';
+    this.#state.machineStatus = 'cancelled';
+    this.#state.printJob.remainingTimeMinutes = 0;
+    this.#state.printJob.formattedEta = '';
     this.#state.temperature.nozzleTarget = 0;
+    this.#state.temperature.leftNozzleTarget = 0;
     this.#state.temperature.bedTarget = 0;
-    // Reset fan speed
+    this.#state.temperature.chamberTarget = 0;
     this.#state.fan.coolingFanSpeed = 0;
+    this.#state.fan.coolingLeftFanSpeed = 0;
+    this.emit('job-changed', this.#state.printJob);
+    this.emit('temperature-changed', this.#state.temperature);
+    this.emit('state-changed', this.#state);
+  }
+
+  stopPrint(): void {
+    this.#clearPauseTimeout();
+    this.#state.printJob = createIdlePrintJob();
+    this.#state.machineStatus = 'idle';
+    this.#state.temperature.nozzleTarget = 0;
+    this.#state.temperature.leftNozzleTarget = 0;
+    this.#state.temperature.bedTarget = 0;
+    this.#state.temperature.chamberTarget = 0;
+    this.#state.fan.coolingFanSpeed = 0;
+    this.#state.fan.coolingLeftFanSpeed = 0;
+    this.#state.errorCode = '';
+    this.emit('job-changed', this.#state.printJob);
+    this.emit('temperature-changed', this.#state.temperature);
+    this.emit('state-changed', this.#state);
+  }
+
+  clearCompletedState(): void {
+    this.#clearPauseTimeout();
+    this.#state.printJob = createIdlePrintJob();
+    this.#state.machineStatus = 'ready';
+    this.#state.errorCode = '';
     this.emit('job-changed', this.#state.printJob);
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Simulates print progress (for auto-simulation mode)
-   */
+  completePrint(options?: { recordCumulative?: boolean }): void {
+    if (!this.#state.printJob.currentFile) {
+      this.#ensureFileExists(DEFAULT_JOB_FILE, DEFAULT_TOTAL_PRINT_TIME_SECONDS);
+      this.#state.printJob.currentFile = DEFAULT_JOB_FILE;
+    }
+
+    this.#clearPauseTimeout();
+
+    const wasCompleted = this.#state.printJob.status === 'completed';
+    this.#state.printJob.status = 'completed';
+    this.#state.machineStatus = 'completed';
+    this.#state.printJob.progress = 1;
+    this.#state.printJob.currentLayer = this.#state.printJob.totalLayers;
+    this.#state.printJob.remainingTimeMinutes = 0;
+    this.#state.printJob.formattedEta = '00:00';
+    this.#state.printJob.elapsedTimeSeconds = Math.max(
+      this.#state.printJob.elapsedTimeSeconds,
+      this.#state.printJob.totalPrintTimeSeconds
+    );
+    this.#state.temperature.nozzleTarget = 0;
+    this.#state.temperature.leftNozzleTarget = 0;
+    this.#state.temperature.bedTarget = 0;
+    this.#state.temperature.chamberTarget = 0;
+
+    if (options?.recordCumulative && !wasCompleted) {
+      this.#state.cumulativePrintTime += this.#state.printJob.elapsedTimeSeconds;
+      this.#state.cumulativeFilament += this.#state.estimatedRightWeight;
+      this.emit('cumulative-stats-changed', {
+        cumulativePrintTime: this.#state.cumulativePrintTime,
+        cumulativeFilament: this.#state.cumulativeFilament,
+      });
+    }
+
+    this.emit('job-changed', this.#state.printJob);
+    this.emit('temperature-changed', this.#state.temperature);
+    this.emit('state-changed', this.#state);
+  }
+
   simulatePrintProgress(): void {
     const job = this.#state.printJob;
     if (job.status !== 'printing' && job.status !== 'heating') {
       return;
     }
 
-    // Check if temperatures are ready
     const tempsReady =
       this.#state.temperature.nozzleCurrent >= this.#state.temperature.nozzleTarget - 2 &&
       this.#state.temperature.bedCurrent >= this.#state.temperature.bedTarget - 2;
 
     if (job.status === 'heating' && tempsReady) {
-      job.status = 'printing';
-      this.#state.machineStatus = 'busy';
-      // Auto fan ramp-up when printing starts
-      this.#state.fan.coolingFanSpeed = 100;
+      this.#setLifecycleStatuses('printing', 'printing');
+      this.#state.fan.coolingFanSpeed = Math.max(this.#state.fan.coolingFanSpeed, 100);
     }
 
-    if (job.status === 'printing') {
-      // Increment progress based on simulation speed
-      const increment = 0.001 * (this.#simulationSpeed / 100);
-      job.progress = Math.min(1, job.progress + increment);
-      job.elapsedTime += 1;
-      job.estimatedTimeRemaining = Math.max(0, job.totalPrintTime - job.elapsedTime);
-      job.currentLayer = Math.floor(job.progress * job.totalLayers);
-
-      // Update Z-axis position based on print progress
-      // Formula: (currentLayer / totalLayers) * 220 (max height in mm)
-      const maxHeight = 220;
-      if (job.totalLayers > 0) {
-        this.#state.position.z = (job.currentLayer / job.totalLayers) * maxHeight;
-      }
-
-      // Update E-axis (extruder) position based on progress
-      // Crude estimate: increment E by progress amount (simulating filament extrusion)
-      // Using ~1000mm total extrusion for typical print
-      const totalExtrusion = 1000;
-      this.#state.position.e = job.progress * totalExtrusion;
-
-      // Update filament estimates based on progress
-      // Crude estimate: 100g total, ~1000mm length per job (will be refined later)
-      const progressPercent = job.progress * 100;
-      this.#state.estimatedRightWeight = (progressPercent / 100) * 100; // 100g total
-      this.#state.estimatedRightLen = (progressPercent / 100) * 1000; // 1000mm total
-
-      // Check if print is complete
-      if (job.progress >= 1) {
-        job.status = 'completed';
-        this.#state.machineStatus = 'idle';
-        // Cool down
-        this.#state.temperature.nozzleTarget = 0;
-        this.#state.temperature.bedTarget = 0;
-        // Reset fan speed
-        this.#state.fan.coolingFanSpeed = 0;
-
-        // Increment cumulative stats
-        this.#state.cumulativePrintTime += job.elapsedTime;
-        // Use crude estimate for filament: 100g per job (will be refined later)
-        this.#state.cumulativeFilament += 100;
-        // Emit cumulative stats changed event
-        this.emit('cumulative-stats-changed', {
-          cumulativePrintTime: this.#state.cumulativePrintTime,
-          cumulativeFilament: this.#state.cumulativeFilament,
-        });
-      }
-
-      this.emit('job-changed', job);
-      this.emit('state-changed', this.#state);
+    if (this.#state.printJob.status !== 'printing') {
+      return;
     }
+
+    const elapsedIncrementSeconds = 0.1 * this.#simulationSpeed;
+    const nextElapsedSeconds = Math.min(
+      job.totalPrintTimeSeconds,
+      job.elapsedTimeSeconds + elapsedIncrementSeconds
+    );
+    const remainingSeconds = Math.max(job.totalPrintTimeSeconds - nextElapsedSeconds, 0);
+
+    job.elapsedTimeSeconds = nextElapsedSeconds;
+    job.progress =
+      job.totalPrintTimeSeconds > 0
+        ? clamp(nextElapsedSeconds / job.totalPrintTimeSeconds, 0, 1)
+        : 0;
+    job.remainingTimeMinutes = roundRemainingMinutesFromSeconds(remainingSeconds);
+    job.formattedEta = remainingSeconds > 0 ? formatEtaFromSeconds(remainingSeconds) : '00:00';
+
+    if (job.totalLayers > 0) {
+      job.currentLayer =
+        job.progress >= 1
+          ? job.totalLayers
+          : Math.max(0, Math.floor(job.progress * job.totalLayers));
+    }
+
+    const maxHeight = 220;
+    this.#state.position.z =
+      job.totalLayers > 0 ? (job.currentLayer / job.totalLayers) * maxHeight : 0;
+    this.#state.position.e = job.progress * 1_000;
+
+    if (job.progress >= 1) {
+      this.completePrint({ recordCumulative: true });
+      return;
+    }
+
+    this.emit('job-changed', job);
+    this.emit('position-changed', this.#state.position);
+    this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Updates LED state
-   */
+  applyScenarioPreset(presetId: ScenarioPresetId): void {
+    const preset = this.getScenarioPresets().find((candidate) => candidate.id === presetId);
+    if (!preset) {
+      return;
+    }
+    this.applyScenario(preset.scenario);
+  }
+
+  applyScenario(scenario: PrinterScenario): void {
+    this.#clearPauseTimeout();
+
+    const hadJobBefore = Boolean(this.#state.printJob.currentFile);
+    const incomingFileName =
+      scenario.fileName !== undefined
+        ? scenario.fileName?.trim() || null
+        : this.#state.printJob.currentFile;
+    const nextJobFile =
+      incomingFileName ??
+      (scenario.printJobStatus && isJobStateVisible(scenario.printJobStatus)
+        ? DEFAULT_JOB_FILE
+        : null) ??
+      (scenario.machineStatus && isJobStateVisible(scenario.machineStatus)
+        ? DEFAULT_JOB_FILE
+        : null);
+
+    if (scenario.currentFileMetadata || nextJobFile) {
+      const totalPrintTimeSeconds =
+        scenario.totalPrintTimeSeconds ??
+        this.#state.printJob.totalPrintTimeSeconds ??
+        DEFAULT_TOTAL_PRINT_TIME_SECONDS;
+      this.#ensureFileExists(
+        nextJobFile ?? DEFAULT_JOB_FILE,
+        totalPrintTimeSeconds,
+        scenario.currentFileMetadata
+      );
+    }
+
+    if (scenario.machineStatus !== undefined) {
+      this.#state.machineStatus = scenario.machineStatus;
+    }
+
+    if (scenario.printJobStatus !== undefined) {
+      this.#state.printJob.status = scenario.printJobStatus;
+    }
+
+    if (scenario.fileName !== undefined) {
+      this.#state.printJob.currentFile = incomingFileName;
+    } else if (
+      (scenario.machineStatus && isJobStateVisible(scenario.machineStatus)) ||
+      (scenario.printJobStatus && isJobStateVisible(scenario.printJobStatus))
+    ) {
+      this.#state.printJob.currentFile = nextJobFile;
+    }
+
+    if (scenario.progressPercent !== undefined) {
+      this.#state.printJob.progress = clamp(scenario.progressPercent / 100, 0, 1);
+    }
+    if (scenario.currentLayer !== undefined) {
+      this.#state.printJob.currentLayer = Math.max(0, roundToWholeNumber(scenario.currentLayer));
+    }
+    if (scenario.totalLayers !== undefined) {
+      this.#state.printJob.totalLayers = Math.max(0, roundToWholeNumber(scenario.totalLayers));
+    }
+    if (scenario.elapsedTimeSeconds !== undefined) {
+      this.#state.printJob.elapsedTimeSeconds = Math.max(
+        0,
+        roundToWholeNumber(scenario.elapsedTimeSeconds)
+      );
+    }
+    if (scenario.remainingTimeMinutes !== undefined) {
+      this.#state.printJob.remainingTimeMinutes = Math.max(
+        0,
+        roundToWholeNumber(scenario.remainingTimeMinutes)
+      );
+    }
+    if (scenario.totalPrintTimeSeconds !== undefined) {
+      this.#state.printJob.totalPrintTimeSeconds = Math.max(
+        0,
+        roundToWholeNumber(scenario.totalPrintTimeSeconds)
+      );
+    }
+    if (scenario.formattedEta !== undefined) {
+      this.#state.printJob.formattedEta = scenario.formattedEta.trim();
+    }
+
+    if (scenario.temperatures) {
+      this.#state.temperature = {
+        ...this.#state.temperature,
+        ...scenario.temperatures,
+      };
+    }
+
+    if (scenario.fan) {
+      Object.assign(this.#state.fan, scenario.fan);
+    }
+
+    if (scenario.ledEnabled !== undefined) {
+      this.#state.led.enabled = scenario.ledEnabled;
+    }
+    if (scenario.estimatedRightLen !== undefined) {
+      this.#state.estimatedRightLen = Math.max(0, scenario.estimatedRightLen);
+    }
+    if (scenario.estimatedRightWeight !== undefined) {
+      this.#state.estimatedRightWeight = Math.max(0, scenario.estimatedRightWeight);
+    }
+    if (scenario.estimatedLeftLen !== undefined) {
+      this.#state.estimatedLeftLen = Math.max(0, scenario.estimatedLeftLen);
+    }
+    if (scenario.estimatedLeftWeight !== undefined) {
+      this.#state.estimatedLeftWeight = Math.max(0, scenario.estimatedLeftWeight);
+    }
+    if (scenario.hasLeftFilament !== undefined) {
+      this.#state.hasLeftFilament = scenario.hasLeftFilament;
+    }
+    if (scenario.hasRightFilament !== undefined) {
+      this.#state.hasRightFilament = scenario.hasRightFilament;
+    }
+    if (scenario.leftFilamentType !== undefined) {
+      this.#state.leftFilamentType = scenario.leftFilamentType;
+    }
+    if (scenario.rightFilamentType !== undefined) {
+      this.#state.rightFilamentType = scenario.rightFilamentType;
+    }
+    if (scenario.errorCode !== undefined) {
+      this.#state.errorCode = scenario.errorCode;
+    }
+
+    if (scenario.materialStation) {
+      if (scenario.materialStation.currentSlot !== undefined) {
+        this.#state.materialStation.currentSlot = scenario.materialStation.currentSlot;
+      }
+      if (scenario.materialStation.currentLoadSlot !== undefined) {
+        this.#state.materialStation.currentLoadSlot = scenario.materialStation.currentLoadSlot;
+      }
+      if (scenario.materialStation.slots) {
+        for (const slotUpdate of scenario.materialStation.slots) {
+          const slotIndex = this.#state.materialStation.slots.findIndex(
+            (slot) => slot.slotId === slotUpdate.slotId
+          );
+          if (slotIndex >= 0) {
+            const existingSlot = this.#state.materialStation.slots[slotIndex];
+            if (existingSlot) {
+              this.#state.materialStation.slots[slotIndex] = {
+                slotId: existingSlot.slotId,
+                hasFilament: slotUpdate.hasFilament ?? existingSlot.hasFilament,
+                materialName: slotUpdate.materialName ?? existingSlot.materialName,
+                materialColor: slotUpdate.materialColor ?? existingSlot.materialColor,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    this.#normalizeJobState();
+
+    if (!hadJobBefore && this.#state.printJob.currentFile) {
+      this.#state.position.e = 0;
+      this.#state.position.z = 0;
+    }
+
+    this.emit('job-changed', this.#state.printJob);
+    this.emit('temperature-changed', this.#state.temperature);
+    this.emit('position-changed', this.#state.position);
+    this.emit('state-changed', this.#state);
+  }
+
+  createScenarioSnapshot(): PrinterScenario {
+    const currentFileMetadata = this.#state.printJob.currentFile
+      ? this.getFile(this.#state.printJob.currentFile)
+      : undefined;
+
+    return {
+      machineStatus: this.#state.machineStatus,
+      printJobStatus: this.#state.printJob.status,
+      fileName: this.#state.printJob.currentFile,
+      progressPercent: Math.round(this.#state.printJob.progress * 100),
+      currentLayer: this.#state.printJob.currentLayer,
+      totalLayers: this.#state.printJob.totalLayers,
+      elapsedTimeSeconds: Math.round(this.#state.printJob.elapsedTimeSeconds),
+      remainingTimeMinutes: this.#state.printJob.remainingTimeMinutes,
+      totalPrintTimeSeconds: this.#state.printJob.totalPrintTimeSeconds,
+      formattedEta: this.#state.printJob.formattedEta,
+      temperatures: { ...this.#state.temperature },
+      fan: { ...this.#state.fan },
+      ledEnabled: this.#state.led.enabled,
+      estimatedRightLen: this.#state.estimatedRightLen,
+      estimatedRightWeight: this.#state.estimatedRightWeight,
+      estimatedLeftLen: this.#state.estimatedLeftLen,
+      estimatedLeftWeight: this.#state.estimatedLeftWeight,
+      hasLeftFilament: this.#state.hasLeftFilament,
+      hasRightFilament: this.#state.hasRightFilament,
+      leftFilamentType: this.#state.leftFilamentType,
+      rightFilamentType: this.#state.rightFilamentType,
+      errorCode: this.#state.errorCode,
+      materialStation: {
+        currentSlot: this.#state.materialStation.currentSlot,
+        currentLoadSlot: this.#state.materialStation.currentLoadSlot,
+        slots: this.#state.materialStation.slots.map((slot) => ({
+          slotId: slot.slotId,
+          hasFilament: slot.hasFilament,
+          materialName: slot.materialName,
+          materialColor: slot.materialColor,
+        })),
+      },
+      ...(currentFileMetadata ? { currentFileMetadata } : {}),
+    };
+  }
+
   updateLed(enabled: boolean): void {
     this.#state.led.enabled = enabled;
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Updates fan state
-   */
   updateFan(
     settings: Partial<{
       coolingFanSpeed: number;
@@ -558,114 +1206,191 @@ export class PrinterStateStore extends EventEmitter {
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Sets TCP control active state
-   */
   setTcpControlActive(active: boolean): void {
     this.#state.tcpControlActive = active;
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Sets runout sensor enabled state (5M Pro only)
-   */
   setRunoutSensorEnabled(enabled: boolean): void {
     this.#state.runoutSensorEnabled = enabled;
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Updates Z-axis compensation value
-   */
   updateZAxisCompensation(value: number): void {
     this.#state.zAxisCompensation = value;
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Updates print speed percentage
-   */
   updatePrintSpeed(speed: number): void {
     this.#state.currentPrintSpeed = speed;
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Adds a file to the file list
-   */
   addFile(file: PrinterFile): void {
-    // Remove existing file with same name
-    this.#state.files = this.#state.files.filter((f) => f.name !== file.name);
+    this.#state.files = this.#state.files.filter((candidate) => candidate.name !== file.name);
     this.#state.files.push(file);
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Removes a file from the file list
-   */
   removeFile(filename: string): void {
-    this.#state.files = this.#state.files.filter((f) => f.name !== filename);
+    this.#state.files = this.#state.files.filter((file) => file.name !== filename);
+    if (this.#state.printJob.currentFile === filename) {
+      this.#state.printJob.currentFile = null;
+    }
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Clears all files
-   */
   clearFiles(): void {
     this.#state.files = [];
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Gets a file by name
-   */
   getFile(filename: string): PrinterFile | undefined {
-    return this.#state.files.find((f) => f.name === filename);
+    return this.#state.files.find((file) => file.name === filename);
   }
 
-  /**
-   * Gets all files
-   */
   getFiles(): ReadonlyArray<PrinterFile> {
     return this.#state.files;
   }
 
-  /**
-   * Updates material slot information (AD5X only)
-   */
   updateMaterialSlot(slotId: number, slot: MaterialSlotUpdate): void {
-    const index = this.#state.materialStation.slots.findIndex((s) => s.slotId === slotId);
-    if (index >= 0) {
-      const existing = this.#state.materialStation.slots[index];
-      if (existing) {
-        this.#state.materialStation.slots[index] = {
-          slotId: existing.slotId,
-          hasFilament: slot.hasFilament ?? existing.hasFilament,
-          materialName: slot.materialName ?? existing.materialName,
-          materialColor: slot.materialColor ?? existing.materialColor,
-        };
-        this.emit('state-changed', this.#state);
-      }
+    const index = this.#state.materialStation.slots.findIndex(
+      (candidate) => candidate.slotId === slotId
+    );
+    if (index < 0) {
+      return;
     }
+
+    const existing = this.#state.materialStation.slots[index];
+    if (!existing) {
+      return;
+    }
+
+    this.#state.materialStation.slots[index] = {
+      slotId: existing.slotId,
+      hasFilament: slot.hasFilament ?? existing.hasFilament,
+      materialName: slot.materialName ?? existing.materialName,
+      materialColor: slot.materialColor ?? existing.materialColor,
+    };
+    this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Sets the current active material slot (AD5X only)
-   */
   setCurrentSlot(slotId: number): void {
     this.#state.materialStation.currentSlot = slotId;
     this.emit('state-changed', this.#state);
   }
 
-  /**
-   * Gets the printer profile for the current model
-   */
-  getProfile(): PrinterProfile {
-    return PRINTER_PROFILES[this.#state.model];
+  setCurrentLoadSlot(slotId: number): void {
+    this.#state.materialStation.currentLoadSlot = slotId;
+    this.emit('state-changed', this.#state);
+  }
+
+  #setLifecycleStatuses(machineStatus: PrintJobStatus, jobStatus: PrintJobStatus): void {
+    this.#state.machineStatus = machineStatus;
+    this.#state.printJob.status = jobStatus;
+    this.emit('job-changed', this.#state.printJob);
+    this.emit('state-changed', this.#state);
+  }
+
+  #clearPauseTimeout(): void {
+    if (this.#pauseTimeoutId) {
+      clearTimeout(this.#pauseTimeoutId);
+      this.#pauseTimeoutId = null;
+    }
+  }
+
+  #normalizeJobState(): void {
+    const job = this.#state.printJob;
+
+    if (
+      (isJobStateVisible(job.status) || isJobStateVisible(this.#state.machineStatus)) &&
+      !job.currentFile
+    ) {
+      job.currentFile = DEFAULT_JOB_FILE;
+    }
+
+    job.progress = clamp(Number.isFinite(job.progress) ? job.progress : 0, 0, 1);
+    job.totalLayers = Math.max(0, roundToWholeNumber(job.totalLayers));
+    job.currentLayer = Math.max(
+      0,
+      Math.min(job.totalLayers || Number.MAX_SAFE_INTEGER, roundToWholeNumber(job.currentLayer))
+    );
+    job.totalPrintTimeSeconds = Math.max(0, roundToWholeNumber(job.totalPrintTimeSeconds));
+    job.elapsedTimeSeconds = Math.max(0, roundToWholeNumber(job.elapsedTimeSeconds));
+
+    if (job.totalPrintTimeSeconds > 0 && job.elapsedTimeSeconds > job.totalPrintTimeSeconds) {
+      job.totalPrintTimeSeconds = job.elapsedTimeSeconds;
+    }
+
+    const derivedRemainingSeconds = Math.max(job.totalPrintTimeSeconds - job.elapsedTimeSeconds, 0);
+    if (!Number.isFinite(job.remainingTimeMinutes) || job.remainingTimeMinutes < 0) {
+      job.remainingTimeMinutes = roundRemainingMinutesFromSeconds(derivedRemainingSeconds);
+    }
+
+    if (
+      job.currentFile &&
+      (job.totalPrintTimeSeconds > 0 || this.#state.files.length === 0) &&
+      !this.getFile(job.currentFile)
+    ) {
+      this.#ensureFileExists(
+        job.currentFile,
+        job.totalPrintTimeSeconds || DEFAULT_TOTAL_PRINT_TIME_SECONDS
+      );
+    }
+
+    if (job.progress >= 1 && job.totalLayers > 0) {
+      job.currentLayer = job.totalLayers;
+    }
+
+    if (job.totalLayers > 0 && job.currentLayer === 0 && job.progress > 0) {
+      job.currentLayer = Math.max(1, Math.floor(job.progress * job.totalLayers));
+    }
+
+    if (!this.#state.errorCode && this.#state.machineStatus === 'error') {
+      this.#state.errorCode = 'EMULATED_ERROR';
+    }
+    if (
+      this.#state.machineStatus !== 'error' &&
+      job.status !== 'error' &&
+      this.#state.errorCode === 'EMULATED_ERROR'
+    ) {
+      this.#state.errorCode = '';
+    }
+  }
+
+  #ensureFileExists(
+    filename: string,
+    totalPrintTimeSeconds: number,
+    metadata?: Partial<PrinterFile>
+  ): void {
+    const existing = this.getFile(filename);
+    if (existing) {
+      if (!metadata) {
+        return;
+      }
+
+      this.addFile({
+        ...existing,
+        ...metadata,
+        name: filename,
+        path: metadata.path ?? existing.path,
+        printTime: metadata.printTime ?? totalPrintTimeSeconds ?? existing.printTime,
+      });
+      return;
+    }
+
+    const synthetic = createSyntheticFile(
+      filename,
+      Math.max(60, roundToWholeNumber(totalPrintTimeSeconds || DEFAULT_TOTAL_PRINT_TIME_SECONDS))
+    );
+    this.addFile({
+      ...synthetic,
+      ...metadata,
+      name: filename,
+      path: metadata?.path ?? synthetic.path,
+      printTime: metadata?.printTime ?? synthetic.printTime,
+    });
   }
 }
 
-/**
- * Global singleton instance of the printer state store
- */
 export const printerStateStore = new PrinterStateStore();

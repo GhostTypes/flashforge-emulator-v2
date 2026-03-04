@@ -21,7 +21,7 @@ interface SidebarProps {
 
 const TABS = [
   { id: 'dashboard' as const, label: 'Dashboard', icon: Activity },
-  { id: 'controls' as const, label: 'Print Controls', icon: PlayCircle },
+  { id: 'controls' as const, label: 'QA Console', icon: PlayCircle },
   { id: 'files' as const, label: 'File Manager', icon: FileStack },
   { id: 'logs' as const, label: 'Logs', icon: List },
   { id: 'settings' as const, label: 'Settings', icon: Cog },

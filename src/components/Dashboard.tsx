@@ -57,6 +57,12 @@ const STATUS_CONFIG: Record<
   paused: { label: 'Paused', color: 'text-warning', bg: 'bg-warning/10', icon: Pause },
   pausing: { label: 'Pausing', color: 'text-warning', bg: 'bg-warning/10', icon: Pause },
   cancel: { label: 'Canceling', color: 'text-error', bg: 'bg-error/10', icon: XCircle },
+  cancelled: {
+    label: 'Cancelled',
+    color: 'text-error',
+    bg: 'bg-error/10',
+    icon: XCircle,
+  },
   completed: {
     label: 'Completed',
     color: 'text-success',
@@ -88,8 +94,9 @@ export const Dashboard: FunctionComponent<DashboardProps> = ({
   const StatusIcon = statusConfig.icon;
 
   const progressPercent = Math.round(state.printJob.progress * 100);
-  const printTimeFormatted = formatTime(state.printJob.elapsedTime);
-  const remainingTimeFormatted = formatTime(state.printJob.estimatedTimeRemaining);
+  const printTimeFormatted = formatTime(state.printJob.elapsedTimeSeconds);
+  const remainingTimeFormatted =
+    state.printJob.formattedEta || formatMinutes(state.printJob.remainingTimeMinutes);
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -366,4 +373,13 @@ function formatTime(seconds: number): string {
     return `${minutes}m ${secs}s`;
   }
   return `${secs}s`;
+}
+
+function formatMinutes(minutes: number): string {
+  if (minutes <= 0) {
+    return '0m';
+  }
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 }

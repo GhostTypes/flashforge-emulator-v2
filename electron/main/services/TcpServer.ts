@@ -11,7 +11,9 @@
 import { EventEmitter } from 'node:events';
 import * as net from 'node:net';
 import type { PrinterModel } from '../../../shared/types/printer';
+import { canStartNewPrint, isStickyTerminalState } from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
+import { protocolLogStore } from '../state/ProtocolLogStore';
 
 /**
  * Connection states for TCP clients
@@ -234,6 +236,12 @@ export class TcpServer extends EventEmitter {
 
     this.#clients.set(socket, client);
     this.emit('client-connected', remoteAddress);
+    protocolLogStore.add({
+      protocol: 'tcp',
+      direction: 'internal',
+      level: 'info',
+      summary: `TCP client connected: ${remoteAddress}`,
+    });
 
     // Set socket timeout (30 seconds)
     socket.setTimeout(30000);
@@ -273,6 +281,12 @@ export class TcpServer extends EventEmitter {
     }
 
     this.emit('client-disconnected', client.remoteAddress);
+    protocolLogStore.add({
+      protocol: 'tcp',
+      direction: 'internal',
+      level: 'info',
+      summary: `TCP client disconnected: ${client.remoteAddress}`,
+    });
   }
 
   /**
@@ -299,13 +313,45 @@ export class TcpServer extends EventEmitter {
    */
   #processCommand(client: TcpClient, command: string): void {
     this.emit('command-received', { client: client.remoteAddress, command });
+    protocolLogStore.add({
+      protocol: 'tcp',
+      direction: 'incoming',
+      level: 'info',
+      summary: `${client.remoteAddress} -> ${command}`,
+      payload: { client: client.remoteAddress, command },
+    });
 
     const response = this.#handleCommand(client, command);
 
     if (response) {
-      client.socket.write(response, 'utf-8');
-      this.emit('response-sent', { client: client.remoteAddress, response });
+      this.#writeResponse(client, response);
     }
+  }
+
+  #writeResponse(client: TcpClient, response: string | Buffer): void {
+    if (typeof response === 'string') {
+      client.socket.write(response, 'utf-8');
+    } else {
+      client.socket.write(response);
+    }
+    this.emit('response-sent', { client: client.remoteAddress, response });
+    protocolLogStore.add({
+      protocol: 'tcp',
+      direction: 'outgoing',
+      level: 'info',
+      summary:
+        typeof response === 'string'
+          ? `Response -> ${client.remoteAddress}`
+          : `Binary response -> ${client.remoteAddress}`,
+      payload:
+        typeof response === 'string'
+          ? { client: client.remoteAddress, response }
+          : {
+              client: client.remoteAddress,
+              byteLength: response.byteLength,
+              base64Preview: response.toString('base64').slice(0, 80),
+            },
+    });
   }
 
   /**
@@ -519,7 +565,8 @@ export class TcpServer extends EventEmitter {
       printing: 'BUILDING_FROM_SD',
       pausing: 'PAUSED', // Transition state before fully paused
       paused: 'PAUSED',
-      cancel: 'BUSY', // Canceling is an active operation
+      cancel: 'READY',
+      cancelled: 'READY',
       completed: 'BUILDING_COMPLETED',
       heating: 'BUSY',
       error: 'READY',
@@ -581,11 +628,11 @@ export class TcpServer extends EventEmitter {
     const fileNames = files.map((f) => `/data/${f.name}`).join('::');
 
     // Send ok immediately
-    client.socket.write(new ResponseBuilder().cmdReceived('M661').build(), 'utf-8');
+    this.#writeResponse(client, new ResponseBuilder().cmdReceived('M661').build());
 
     // Send file list after 500ms delay
     setTimeout(() => {
-      client.socket.write(fileNames, 'utf-8');
+      this.#writeResponse(client, fileNames);
     }, 500);
   }
 
@@ -597,7 +644,7 @@ export class TcpServer extends EventEmitter {
     // Extract file path from command
     const match = command.match(/M662\s+(.+)/);
     if (!match?.[1]) {
-      client.socket.write(ResponseBuilder.error('Invalid M662 command'), 'utf-8');
+      this.#writeResponse(client, ResponseBuilder.error('Invalid M662 command'));
       return;
     }
 
@@ -606,12 +653,12 @@ export class TcpServer extends EventEmitter {
     const file = printerStateStore.getFile(fileName);
 
     if (!file) {
-      client.socket.write(ResponseBuilder.error('File not found'), 'utf-8');
+      this.#writeResponse(client, ResponseBuilder.error('File not found'));
       return;
     }
 
     // Send ok immediately
-    client.socket.write(new ResponseBuilder().cmdReceived('M662').build(), 'utf-8');
+    this.#writeResponse(client, new ResponseBuilder().cmdReceived('M662').build());
 
     // Send binary PNG data after delay
     setTimeout(() => {
@@ -620,7 +667,7 @@ export class TcpServer extends EventEmitter {
         file.thumbnail ||
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
       const pngBuffer = Buffer.from(pngBase64, 'base64');
-      client.socket.write(pngBuffer);
+      this.#writeResponse(client, pngBuffer);
     }, 500);
   }
 
@@ -715,7 +762,19 @@ export class TcpServer extends EventEmitter {
       return ResponseBuilder.error('File not found');
     }
 
-    printerStateStore.startPrint(fileName, file.printTime);
+    const machineStatus = printerStateStore.state.machineStatus;
+    if (!canStartNewPrint(machineStatus)) {
+      return ResponseBuilder.error(
+        isStickyTerminalState(machineStatus)
+          ? 'Clear to ready before starting a new job'
+          : 'Printer is busy'
+      );
+    }
+
+    if (!printerStateStore.startPrint(fileName, file.printTime)) {
+      return ResponseBuilder.error('Printer is busy');
+    }
+
     return new ResponseBuilder().cmdReceived('M23').build();
   }
 
@@ -739,7 +798,7 @@ export class TcpServer extends EventEmitter {
    * M26 - Stop print
    */
   #handleM26(): string {
-    printerStateStore.stopPrint();
+    printerStateStore.cancelPrint();
     return new ResponseBuilder().cmdReceived('M26').build();
   }
 
@@ -764,7 +823,7 @@ export class TcpServer extends EventEmitter {
   #handleM109(client: TcpClient, command: string): void {
     const match = command.match(/M109\s+S(\d+)/);
     if (!match?.[1]) {
-      client.socket.write(ResponseBuilder.error('Invalid M109 command'), 'utf-8');
+      this.#writeResponse(client, ResponseBuilder.error('Invalid M109 command'));
       return;
     }
 
@@ -775,7 +834,7 @@ export class TcpServer extends EventEmitter {
     );
 
     // Send initial acknowledgment
-    client.socket.write(new ResponseBuilder().cmdReceived('M109').addLine('wait').build(), 'utf-8');
+    this.#writeResponse(client, new ResponseBuilder().cmdReceived('M109').addLine('wait').build());
 
     // Poll until temperature reaches target (within 2 degrees)
     const checkInterval = setInterval(() => {
@@ -783,15 +842,15 @@ export class TcpServer extends EventEmitter {
       const diff = Math.abs(temp.nozzleCurrent - targetTemp);
 
       // Send temperature updates while waiting
-      client.socket.write(
-        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`,
-        'utf-8'
+      this.#writeResponse(
+        client,
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`
       );
 
       if (diff <= 2) {
         // Temperature reached - send final ok
         clearInterval(checkInterval);
-        client.socket.write('ok\n', 'utf-8');
+        this.#writeResponse(client, 'ok\n');
       }
     }, 500); // Check every 500ms
   }
@@ -817,7 +876,7 @@ export class TcpServer extends EventEmitter {
   #handleM190(client: TcpClient, command: string): void {
     const match = command.match(/M190\s+S(\d+)/);
     if (!match?.[1]) {
-      client.socket.write(ResponseBuilder.error('Invalid M190 command'), 'utf-8');
+      this.#writeResponse(client, ResponseBuilder.error('Invalid M190 command'));
       return;
     }
 
@@ -828,7 +887,7 @@ export class TcpServer extends EventEmitter {
     );
 
     // Send initial acknowledgment
-    client.socket.write(new ResponseBuilder().cmdReceived('M190').addLine('wait').build(), 'utf-8');
+    this.#writeResponse(client, new ResponseBuilder().cmdReceived('M190').addLine('wait').build());
 
     // Poll until temperature reaches target (within 2 degrees)
     const checkInterval = setInterval(() => {
@@ -836,15 +895,15 @@ export class TcpServer extends EventEmitter {
       const diff = Math.abs(temp.bedCurrent - targetTemp);
 
       // Send temperature updates while waiting
-      client.socket.write(
-        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`,
-        'utf-8'
+      this.#writeResponse(
+        client,
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`
       );
 
       if (diff <= 2) {
         // Temperature reached - send final ok
         clearInterval(checkInterval);
-        client.socket.write('ok\n', 'utf-8');
+        this.#writeResponse(client, 'ok\n');
       }
     }, 500); // Check every 500ms
   }
@@ -856,29 +915,29 @@ export class TcpServer extends EventEmitter {
   #handleM191(client: TcpClient, command: string): void {
     const match = command.match(/M191\s+S(\d+)/);
     if (!match?.[1]) {
-      client.socket.write(ResponseBuilder.error('Invalid M191 command'), 'utf-8');
+      this.#writeResponse(client, ResponseBuilder.error('Invalid M191 command'));
       return;
     }
 
     const targetTemp = Number.parseInt(match[1], 10);
 
     // Send initial acknowledgment
-    client.socket.write(new ResponseBuilder().cmdReceived('M191').addLine('wait').build(), 'utf-8');
+    this.#writeResponse(client, new ResponseBuilder().cmdReceived('M191').addLine('wait').build());
 
     // Poll until bed temperature drops below target
     const checkInterval = setInterval(() => {
       const temp = printerStateStore.state.temperature;
 
       // Send temperature updates while waiting
-      client.socket.write(
-        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`,
-        'utf-8'
+      this.#writeResponse(
+        client,
+        `T0:${temp.nozzleCurrent.toFixed(1)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(1)}/${temp.bedTarget.toFixed(0)}\n`
       );
 
       if (temp.bedCurrent <= targetTemp) {
         // Temperature cooled below target - send final ok
         clearInterval(checkInterval);
-        client.socket.write('ok\n', 'utf-8');
+        this.#writeResponse(client, 'ok\n');
       }
     }, 500); // Check every 500ms
   }
@@ -908,7 +967,6 @@ export class TcpServer extends EventEmitter {
    */
   #handleM112(): string {
     printerStateStore.stopPrint();
-    printerStateStore.setMachineStatus('idle');
     return new ResponseBuilder().cmdReceived('M112').build();
   }
 

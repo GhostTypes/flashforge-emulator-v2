@@ -13,13 +13,11 @@ import type { Request, RequestHandler, Response } from 'express';
 import express from 'express';
 import type { FileFilterCallback } from 'multer';
 import multer from 'multer';
-import type {
-  GcodeToolData,
-  IndepMatlInfo,
-  PrinterFile,
-  PrinterModel,
-} from '../../../shared/types/printer';
+import { serializeHttpDetail } from '../../../shared/serializers/httpDetail';
+import type { GcodeToolData, PrinterFile, PrinterModel } from '../../../shared/types/printer';
+import { canStartNewPrint, isStickyTerminalState } from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
+import { protocolLogStore } from '../state/ProtocolLogStore';
 
 /**
  * Authentication credentials from request
@@ -102,6 +100,10 @@ interface AuthenticatedRequest {
   materialMappings?: unknown[];
 }
 
+interface RequestWithUpload extends Request {
+  file?: Express.Multer.File;
+}
+
 /**
  * Response codes matching FlashForge API
  */
@@ -146,6 +148,21 @@ function estimatePrintTime(fileSize: number): number {
   const minutesPerMB = 10;
   const fileSizeMB = fileSize / (1024 * 1024);
   return Math.max(60, Math.floor(fileSizeMB * minutesPerMB * 60));
+}
+
+function buildHttpLogPayload(req: Request): Record<string, unknown> {
+  const request = req as RequestWithUpload;
+  return {
+    headers: request.headers,
+    body: request.body,
+    file: request.file
+      ? {
+          originalname: request.file.originalname,
+          size: request.file.size,
+          mimetype: request.file.mimetype,
+        }
+      : undefined,
+  };
 }
 
 /**
@@ -265,12 +282,33 @@ export class HttpServer extends EventEmitter {
     this.#app.use(express.json());
 
     // Request logging
-    this.#app.use((req, _res, next) => {
+    this.#app.use((req, res, next) => {
       this.emit('request-received', {
         method: req.method,
         path: req.path,
         headers: req.headers,
       });
+
+      protocolLogStore.add({
+        protocol: 'http',
+        direction: 'incoming',
+        level: 'info',
+        summary: `${req.method} ${req.path}`,
+        payload: buildHttpLogPayload(req),
+      });
+
+      const originalJson = res.json.bind(res);
+      res.json = ((body: unknown) => {
+        protocolLogStore.add({
+          protocol: 'http',
+          direction: 'outgoing',
+          level: res.statusCode >= 400 ? 'error' : 'info',
+          summary: `${req.method} ${req.path} -> ${res.statusCode}`,
+          payload: body,
+        });
+        return originalJson(body);
+      }) as typeof res.json;
+
       next();
     });
   }
@@ -421,112 +459,7 @@ export class HttpServer extends EventEmitter {
    */
   #handleDetail = this.#withAuth((_req: Request, res: Response): void => {
     const state = printerStateStore.state;
-    const profile = printerStateStore.getProfile();
-
-    // Map machine status to API format
-    const statusMap: Record<string, string> = {
-      idle: 'ready',
-      ready: 'ready',
-      busy: 'busy',
-      printing: 'printing',
-      paused: 'paused',
-      pausing: 'pausing',
-      cancel: 'cancel',
-      completed: 'completed',
-      heating: 'heating',
-      error: 'error',
-      calibrate_doing: 'calibrate_doing',
-    };
-
-    const detail: Record<string, unknown> = {
-      autoShutdown: state.autoShutdown,
-      autoShutdownTime: state.autoShutdownTime,
-      cameraStreamUrl: profile.hasCamera ? `http://${state.ipAddress}:8080/stream` : '',
-      chamberFanSpeed: state.fan.chamberFanSpeed,
-      chamberTargetTemp: state.temperature.chamberTarget,
-      chamberTemp: state.temperature.chamberCurrent,
-      coolingFanSpeed: state.fan.coolingFanSpeed,
-      coolingFanLeftSpeed: profile.hasMaterialStation ? state.fan.coolingLeftFanSpeed : 0,
-      cumulativeFilament: state.cumulativeFilament,
-      cumulativePrintTime: state.cumulativePrintTime,
-      currentPrintSpeed: state.currentPrintSpeed,
-      doorStatus: state.doorOpen ? 'open' : 'close',
-      errorCode: state.errorCode,
-      estimatedLeftLen: state.estimatedLeftLen,
-      estimatedLeftWeight: state.estimatedLeftWeight,
-      estimatedRightLen: state.estimatedRightLen,
-      estimatedRightWeight: state.estimatedRightWeight,
-      estimatedTime: state.printJob.estimatedTimeRemaining,
-      externalFanStatus: state.fan.externalFanEnabled ? 'open' : 'close',
-      fillAmount: state.fillAmount,
-      firmwareVersion: state.firmwareVersion,
-      flashRegisterCode: '',
-      internalFanStatus: state.fan.internalFanEnabled ? 'open' : 'close',
-      ipAddr: state.ipAddress,
-      lightStatus: state.led.enabled ? 'open' : 'close',
-      location: '',
-      macAddr: state.macAddress,
-      measure: `${profile.buildVolume.x}X${profile.buildVolume.y}X${profile.buildVolume.z}`,
-      name: state.machineName,
-      nozzleCnt: state.nozzleCount,
-      nozzleModel: state.nozzleModel,
-      nozzleStyle: 1,
-      pid: 0,
-      platTargetTemp: state.temperature.bedTarget,
-      platTemp: state.temperature.bedCurrent,
-      polarRegisterCode: '',
-      printDuration: state.printJob.elapsedTime,
-      printFileName: state.printJob.currentFile ?? '',
-      printFileThumbUrl: state.printJob.currentFile
-        ? `http://${state.ipAddress}:8898/thumb/${state.printJob.currentFile}`
-        : '',
-      printLayer: state.printJob.currentLayer,
-      printProgress: state.printJob.progress,
-      printSpeedAdjust: state.printSpeedAdjust,
-      hasRightFilament: state.hasRightFilament,
-      remainingDiskSpace: state.remainingDiskSpace,
-      rightFilamentType: state.rightFilamentType,
-      rightTargetTemp: state.temperature.nozzleTarget,
-      rightTemp: state.temperature.nozzleCurrent,
-      status: statusMap[state.machineStatus] ?? 'ready',
-      targetPrintLayer: state.printJob.totalLayers,
-      tvoc: state.tvoc,
-      zAxisCompensation: state.zAxisCompensation,
-    };
-
-    // Add AD5X material station info if applicable
-    if (profile.hasMaterialStation) {
-      detail['hasMatlStation'] = true;
-      detail['hasLeftFilament'] = state.hasLeftFilament;
-      detail['leftFilamentType'] = state.leftFilamentType;
-      detail['leftTemp'] = state.temperature.leftNozzleCurrent;
-      detail['leftTargetTemp'] = state.temperature.leftNozzleTarget;
-      detail['matlStationInfo'] = {
-        currentLoadSlot: state.materialStation.currentLoadSlot,
-        currentSlot: state.materialStation.currentSlot,
-        slotCnt: state.materialStation.slotCount,
-        stateAction: 0,
-        stateStep: 0,
-        slotInfos: state.materialStation.slots.map((slot) => ({
-          slotId: slot.slotId, // State uses 1-based indexing (1-4) matching API
-          hasFilament: slot.hasFilament,
-          materialName: slot.materialName || 'PLA',
-          materialColor: slot.materialColor,
-        })),
-      };
-
-      // Build indepMatlInfo from current slot
-      const currentSlot = state.materialStation.slots.find(
-        (slot) => slot.slotId === state.materialStation.currentSlot
-      );
-      const indepMatlInfo: IndepMatlInfo = {
-        materialColor: currentSlot?.materialColor || '',
-        materialName: currentSlot?.materialName || 'PLA',
-        stateAction: 0,
-        stateStep: 0,
-      };
-      detail['indepMatlInfo'] = indepMatlInfo;
-    }
+    const detail = serializeHttpDetail(state);
 
     this.emit('response-sent', { path: '/detail', detail });
     res.json(this.#success(detail));
@@ -596,7 +529,7 @@ export class HttpServer extends EventEmitter {
             printerStateStore.resumePrint();
             break;
           case 'cancel':
-            printerStateStore.stopPrint();
+            printerStateStore.cancelPrint();
             break;
         }
         this.emit('command-executed', { cmd, args });
@@ -623,9 +556,13 @@ export class HttpServer extends EventEmitter {
       case 'stateCtrl_cmd': {
         const action = args?.action as string;
         if (action === 'setClearPlatform') {
-          // Reset completed state
-          if (printerStateStore.state.machineStatus === 'completed') {
-            printerStateStore.setMachineStatus('idle');
+          const machineStatus = printerStateStore.state.machineStatus;
+          if (
+            machineStatus === 'completed' ||
+            machineStatus === 'cancelled' ||
+            machineStatus === 'error'
+          ) {
+            printerStateStore.clearCompletedState();
           }
         }
         this.emit('command-executed', { cmd, args });
@@ -659,7 +596,10 @@ export class HttpServer extends EventEmitter {
         }
 
         // Transition to 'heating' state if new target temps exceed current temps and status is idle
-        if (hasNewTargetTemp && state.machineStatus === 'idle') {
+        if (
+          hasNewTargetTemp &&
+          (state.machineStatus === 'idle' || state.machineStatus === 'ready')
+        ) {
           printerStateStore.setMachineStatus('heating');
         }
 
@@ -745,12 +685,14 @@ export class HttpServer extends EventEmitter {
       return;
     }
 
-    // Check if printer is busy
-    if (
-      printerStateStore.state.machineStatus === 'printing' ||
-      printerStateStore.state.machineStatus === 'busy'
-    ) {
-      res.json(this.#error(ResponseCode.Busy, 'Busy'));
+    const machineStatus = printerStateStore.state.machineStatus;
+    if (!canStartNewPrint(machineStatus)) {
+      res.json(
+        this.#error(
+          ResponseCode.Busy,
+          isStickyTerminalState(machineStatus) ? 'Clear to ready before starting a new job' : 'Busy'
+        )
+      );
       return;
     }
 
@@ -762,7 +704,10 @@ export class HttpServer extends EventEmitter {
       materialMappings: body.materialMappings ?? [],
     };
 
-    printerStateStore.startPrint(fileName, file.printTime);
+    if (!printerStateStore.startPrint(fileName, file.printTime)) {
+      res.json(this.#error(ResponseCode.Busy, 'Busy'));
+      return;
+    }
     this.emit('print-started', { fileName, ad5xParams });
     res.json(this.#success());
   });
@@ -868,16 +813,23 @@ export class HttpServer extends EventEmitter {
 
     // Start printing if requested
     if (printNow) {
-      // Check if printer is busy
-      if (
-        printerStateStore.state.machineStatus === 'printing' ||
-        printerStateStore.state.machineStatus === 'busy'
-      ) {
-        res.json(this.#error(ResponseCode.Busy, 'Printer is busy'));
+      const machineStatus = printerStateStore.state.machineStatus;
+      if (!canStartNewPrint(machineStatus)) {
+        res.json(
+          this.#error(
+            ResponseCode.Busy,
+            isStickyTerminalState(machineStatus)
+              ? 'Clear to ready before starting a new job'
+              : 'Printer is busy'
+          )
+        );
         return;
       }
 
-      printerStateStore.startPrint(fileName, printTime);
+      if (!printerStateStore.startPrint(fileName, printTime)) {
+        res.json(this.#error(ResponseCode.Busy, 'Printer is busy'));
+        return;
+      }
       this.emit('print-started', { fileName, ad5xParams });
     }
 

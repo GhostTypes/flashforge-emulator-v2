@@ -13,6 +13,7 @@ import { EventEmitter } from 'node:events';
 import type { DiscoveryConfig, PrinterModel, PrinterState } from '../../../shared/types/printer';
 import { PRINTER_PROFILES } from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
+import { protocolLogStore } from '../state/ProtocolLogStore';
 
 /**
  * Creates the modern discovery response buffer (276 bytes)
@@ -233,6 +234,18 @@ export class UdpDiscoveryServer extends EventEmitter {
       remotePort: rinfo.port,
       size: buffer.length,
     });
+    protocolLogStore.add({
+      protocol: 'discovery',
+      direction: 'incoming',
+      level: 'info',
+      summary: `Discovery probe from ${rinfo.address}:${rinfo.port}`,
+      payload: {
+        remoteAddress: rinfo.address,
+        remotePort: rinfo.port,
+        size: buffer.length,
+        hexPreview: buffer.toString('hex').slice(0, 80),
+      },
+    });
 
     const state = printerStateStore.state;
     const config = printerStateStore.config;
@@ -254,12 +267,31 @@ export class UdpDiscoveryServer extends EventEmitter {
           remoteAddress: rinfo.address,
           error,
         });
+        protocolLogStore.add({
+          protocol: 'discovery',
+          direction: 'outgoing',
+          level: 'error',
+          summary: `Discovery response failed: ${rinfo.address}:${responsePort}`,
+          payload: { error: error.message },
+        });
       } else {
         this.emit('discovery-response', {
           remoteAddress: rinfo.address,
           printerName: config.discoveryConfig.machineName || state.machineName,
           serialNumber: state.serialNumber,
           mode: state.protocolMode,
+        });
+        protocolLogStore.add({
+          protocol: 'discovery',
+          direction: 'outgoing',
+          level: 'info',
+          summary: `Discovery response to ${rinfo.address}:${responsePort}`,
+          payload: {
+            printerName: config.discoveryConfig.machineName || state.machineName,
+            serialNumber: state.serialNumber,
+            mode: state.protocolMode,
+            size: response.byteLength,
+          },
         });
       }
     });

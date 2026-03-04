@@ -7,7 +7,12 @@
  * @packageDocumentation
  */
 
-import type { PrinterFile, PrinterState } from '@shared/types/printer';
+import {
+  type PrinterFile,
+  type PrinterState,
+  canStartNewPrint,
+  isStickyTerminalState,
+} from '@shared/types/printer';
 import { File, FolderOpen, Play, Plus, Trash2, Upload } from 'lucide-react';
 import type { FunctionComponent } from 'react';
 
@@ -29,10 +34,8 @@ export const FileManager: FunctionComponent<FileManagerProps> = ({
   onStartPrint,
 }) => {
   const files = state.files;
-  const canPrint =
-    state.machineStatus === 'idle' ||
-    state.machineStatus === 'ready' ||
-    state.machineStatus === 'completed';
+  const canPrint = canStartNewPrint(state.machineStatus);
+  const stickyTerminalState = isStickyTerminalState(state.machineStatus);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -57,17 +60,18 @@ export const FileManager: FunctionComponent<FileManagerProps> = ({
 
   const handleAddDemoFile = () => {
     const demoNames = [
-      ' Calibration Cube',
-      ' Benchy Boat',
-      ' Test Print',
-      ' Spiral Vase',
-      ' Support Test',
+      'Calibration Cube',
+      'Benchy Boat',
+      'Test Print',
+      'Spiral Vase',
+      'Support Test',
     ];
     const randomName = demoNames[Math.floor(Math.random() * demoNames.length)];
+    const fileName = `${randomName}_${Date.now()}.gcode`;
 
     const newFile: PrinterFile = {
-      name: `${randomName}_${Date.now()}`,
-      path: `/data/${randomName}.gcode`,
+      name: fileName,
+      path: `/data/${fileName}`,
       size: Math.floor(Math.random() * 10000000) + 1000000,
       printTime: Math.floor(Math.random() * 7200) + 1800,
       is3mf: false,
@@ -103,6 +107,13 @@ export const FileManager: FunctionComponent<FileManagerProps> = ({
           <p className="mt-1 text-sm text-neutral-500">
             Manage print files on the virtual printer storage
           </p>
+          {!canPrint && (
+            <p className="mt-2 text-sm text-warning">
+              {stickyTerminalState
+                ? 'Completed, cancelled, and error remain locked until you clear back to ready.'
+                : 'A new job can only start while the printer is idle or ready.'}
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <label className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-300 hover:bg-neutral-700 transition-colors cursor-pointer">
@@ -214,7 +225,7 @@ export const FileManager: FunctionComponent<FileManagerProps> = ({
         <div className="flex items-center justify-between text-sm">
           <span className="text-neutral-500">Storage Used:</span>
           <span className="font-medium text-neutral-300">
-            {files.length} file{files.length !== 1 ? 's' : ''} •{' '}
+            {files.length} file{files.length !== 1 ? 's' : ''} |{' '}
             {formatFileSize(files.reduce((sum, f) => sum + f.size, 0))}
           </span>
         </div>

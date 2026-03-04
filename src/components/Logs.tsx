@@ -1,210 +1,173 @@
 /**
  * @fileoverview
- * Log viewer component
- *
- * Displays TCP and HTTP protocol logs with filtering capabilities.
+ * Real protocol log viewer for HTTP, TCP, discovery, and internal emulator events.
  *
  * @packageDocumentation
  */
 
-import { AlertCircle, AlertTriangle, Ban, Info, RefreshCw } from 'lucide-react';
-import { type FunctionComponent, useState } from 'react';
-
-export type LogEntry = {
-  /** Unique ID for the entry */
-  id: string;
-  /** Timestamp of the log entry */
-  timestamp: Date;
-  /** Log type */
-  type: 'tcp' | 'http' | 'system' | 'error';
-  /** Log level */
-  level: 'info' | 'warning' | 'error';
-  /** Log message */
-  message: string;
-  /** Additional data */
-  data?: unknown;
-};
+import type { ProtocolLogEntry } from '@shared/types/printer';
+import { AlertCircle, AlertTriangle, Ban, Info, RefreshCw, Search } from 'lucide-react';
+import { type FunctionComponent, useMemo, useState } from 'react';
 
 interface LogsProps {
-  /** Log entries to display */
-  logs: readonly LogEntry[];
-  /** Callback to clear logs */
+  logs: readonly ProtocolLogEntry[];
   onClear: () => void;
 }
 
-const LOG_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  tcp: { label: 'TCP', color: 'text-info bg-info/20' },
-  http: { label: 'HTTP', color: 'text-success bg-success/20' },
-  system: { label: 'System', color: 'text-neutral-400 bg-neutral-800' },
-  error: { label: 'Error', color: 'text-error bg-error/20' },
+const PROTOCOL_LABELS: Record<ProtocolLogEntry['protocol'], { label: string; color: string }> = {
+  http: { label: 'HTTP', color: 'text-success bg-success/10' },
+  tcp: { label: 'TCP', color: 'text-info bg-info/10' },
+  discovery: { label: 'Discovery', color: 'text-warning bg-warning/10' },
+  system: { label: 'System', color: 'text-neutral-300 bg-neutral-700/60' },
 };
 
-type LogLevel = 'info' | 'warning' | 'error';
+const DIRECTION_LABELS: Record<ProtocolLogEntry['direction'], string> = {
+  incoming: 'IN',
+  outgoing: 'OUT',
+  internal: 'INT',
+};
+
+type LogLevel = ProtocolLogEntry['level'];
 
 export const Logs: FunctionComponent<LogsProps> = ({ logs, onClear }) => {
-  const [filter, setFilter] = useState<'all' | 'tcp' | 'http' | 'error'>('all');
+  const [protocolFilter, setProtocolFilter] = useState<'all' | ProtocolLogEntry['protocol']>('all');
+  const [directionFilter, setDirectionFilter] = useState<'all' | ProtocolLogEntry['direction']>(
+    'all'
+  );
   const [levelFilter, setLevelFilter] = useState<'all' | LogLevel>('all');
+  const [search, setSearch] = useState('');
 
-  const filteredLogs = logs.filter((log) => {
-    if (filter !== 'all' && log.type !== filter) return false;
-    if (levelFilter !== 'all' && log.level !== levelFilter) return false;
-    return true;
-  });
+  const filteredLogs = useMemo(() => {
+    const query = search.trim().toLowerCase();
 
-  const handleClear = () => {
-    onClear();
-  };
+    return logs.filter((entry) => {
+      if (protocolFilter !== 'all' && entry.protocol !== protocolFilter) return false;
+      if (directionFilter !== 'all' && entry.direction !== directionFilter) return false;
+      if (levelFilter !== 'all' && entry.level !== levelFilter) return false;
+      if (!query) return true;
 
-  const formatTimestamp = (date: Date): string => {
-    const hours = date.getHours().toString().padStart(2, '0');
-    const minutes = date.getMinutes().toString().padStart(2, '0');
-    const seconds = date.getSeconds().toString().padStart(2, '0');
-    const ms = date.getMilliseconds().toString().padStart(3, '0');
-    return `${hours}:${minutes}:${seconds}.${ms}`;
-  };
+      const haystack = `${entry.summary}\n${JSON.stringify(entry.payload ?? {})}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [directionFilter, levelFilter, logs, protocolFilter, search]);
 
   return (
-    <div className="flex h-full flex-col p-6">
-      {/* Header */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
+    <div className="flex h-full flex-col gap-4 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-medium text-neutral-100">Protocol Logs</h2>
-          <p className="mt-1 text-sm text-neutral-500">TCP and HTTP request/response log</p>
+          <p className="mt-1 text-sm text-neutral-500">
+            Incoming and outgoing traffic across HTTP, TCP, and discovery surfaces
+          </p>
         </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleClear}
-            className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-300 hover:bg-neutral-700 transition-colors"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Clear Logs
-          </button>
+
+        <button
+          type="button"
+          onClick={onClear}
+          className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-300 transition-colors hover:bg-neutral-700"
+        >
+          <RefreshCw className="h-4 w-4" />
+          Clear Logs
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-[auto_auto_auto_minmax(0,1fr)_auto]">
+        <FilterGroup
+          label="Protocol"
+          value={protocolFilter}
+          options={['all', 'http', 'tcp', 'discovery', 'system']}
+          onChange={(value) => setProtocolFilter(value as 'all' | ProtocolLogEntry['protocol'])}
+        />
+        <FilterGroup
+          label="Direction"
+          value={directionFilter}
+          options={['all', 'incoming', 'outgoing', 'internal']}
+          onChange={(value) => setDirectionFilter(value as 'all' | ProtocolLogEntry['direction'])}
+        />
+        <FilterGroup
+          label="Level"
+          value={levelFilter}
+          options={['all', 'info', 'warning', 'error']}
+          onChange={(value) => setLevelFilter(value as 'all' | LogLevel)}
+        />
+
+        <label className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-400">
+          <Search className="h-4 w-4" />
+          <input
+            type="text"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search summaries or payloads"
+            className="w-full bg-transparent text-neutral-100 outline-none placeholder:text-neutral-600"
+          />
+        </label>
+
+        <div className="flex items-center justify-end text-sm text-neutral-500">
+          <span className="font-medium text-neutral-100">{filteredLogs.length}</span>
+          <span className="ml-1">entries</span>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="mb-4 flex flex-wrap gap-2">
-        {/* Type Filter */}
-        <div className="flex rounded-md border border-neutral-700 bg-neutral-800 p-1">
-          {(['all', 'tcp', 'http', 'error'] as const).map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => setFilter(type)}
-              className={[
-                'rounded px-3 py-1.5 text-xs font-medium capitalize transition-colors',
-                filter === type
-                  ? 'bg-neutral-700 text-neutral-100'
-                  : 'text-neutral-500 hover:text-neutral-300',
-              ].join(' ')}
-            >
-              {type === 'error' ? 'Errors' : type}
-            </button>
-          ))}
-        </div>
-
-        {/* Level Filter */}
-        <div className="flex rounded-md border border-neutral-700 bg-neutral-800 p-1">
-          {(['all', 'info', 'warning', 'error'] as const).map((level) => {
-            const isSelected = levelFilter === level;
-            const baseClass =
-              'flex items-center gap-1.5 rounded px-3 py-1.5 text-xs font-medium capitalize transition-colors';
-            const selectedClass = isSelected
-              ? 'bg-neutral-700 text-neutral-100'
-              : 'text-neutral-500 hover:text-neutral-300';
-
-            return (
-              <button
-                key={level}
-                type="button"
-                onClick={() => setLevelFilter(level === 'all' ? 'all' : (level as LogLevel))}
-                className={[baseClass, selectedClass].join(' ')}
-              >
-                {level === 'error' && <AlertCircle className="h-3 w-3" />}
-                {level === 'warning' && <AlertTriangle className="h-3 w-3" />}
-                {level === 'info' && <Info className="h-3 w-3" />}
-                {level}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Log Count */}
-        <div className="ml-auto flex items-center gap-1 text-sm text-neutral-500">
-          <span className="font-medium text-neutral-300">{filteredLogs.length}</span>
-          <span>entries</span>
-        </div>
-      </div>
-
-      {/* Log Content */}
       <section className="flex-1 overflow-hidden rounded-lg border border-neutral-800 bg-neutral-900">
         {filteredLogs.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center text-center">
             <Ban className="mb-3 h-12 w-12 text-neutral-700" />
-            <p className="text-lg font-medium text-neutral-500">No logs to display</p>
+            <p className="text-lg font-medium text-neutral-400">No matching protocol traffic</p>
             <p className="mt-1 text-sm text-neutral-600">
-              Logs will appear here as the emulator processes commands
+              Start a client request or adjust the filters to inspect traffic.
             </p>
           </div>
         ) : (
-          <div className="flex h-full flex-col">
-            <div className="flex-1 overflow-y-auto p-4 font-mono text-xs">
-              <div className="flex flex-col gap-1">
-                {filteredLogs.map((entry) => {
-                  const typeConfig = LOG_TYPE_LABELS[entry.type] ?? LOG_TYPE_LABELS['system'];
-                  if (!typeConfig) {
-                    return null;
-                  }
-
-                  const iconColor =
-                    entry.level === 'error'
-                      ? 'text-error'
-                      : entry.level === 'warning'
-                        ? 'text-warning'
-                        : 'text-info';
+          <div className="h-full overflow-y-auto p-4">
+            <div className="flex flex-col gap-3">
+              {filteredLogs
+                .slice()
+                .reverse()
+                .map((entry) => {
+                  const protocolConfig = PROTOCOL_LABELS[entry.protocol];
+                  const icon =
+                    entry.level === 'error' ? (
+                      <AlertCircle className="h-3.5 w-3.5 text-error" />
+                    ) : entry.level === 'warning' ? (
+                      <AlertTriangle className="h-3.5 w-3.5 text-warning" />
+                    ) : (
+                      <Info className="h-3.5 w-3.5 text-info" />
+                    );
 
                   return (
-                    <div key={entry.id} className="flex gap-3 rounded bg-neutral-800/50 px-3 py-2">
-                      {/* Timestamp */}
-                      <span className="shrink-0 text-neutral-600">
-                        {formatTimestamp(entry.timestamp)}
-                      </span>
-
-                      {/* Type Badge */}
-                      <span
-                        className={[
-                          'shrink-0 rounded px-1.5 py-0.5 text-xs font-medium',
-                          typeConfig.color,
-                        ].join(' ')}
-                      >
-                        {typeConfig.label}
-                      </span>
-
-                      {/* Level Icon */}
-                      <span className="shrink-0">
-                        {entry.level === 'error' && (
-                          <AlertCircle className={`h-3.5 w-3.5 ${iconColor}`} />
-                        )}
-                        {entry.level === 'warning' && (
-                          <AlertTriangle className={`h-3.5 w-3.5 ${iconColor}`} />
-                        )}
-                        {entry.level === 'info' && <Info className={`h-3.5 w-3.5 ${iconColor}`} />}
-                      </span>
-
-                      {/* Message */}
-                      <span className="flex-1 text-neutral-300">{entry.message}</span>
-
-                      {/* Data preview */}
-                      {entry.data != null && (
-                        <span className="shrink-0 text-neutral-600">
-                          {JSON.stringify(entry.data)}
+                    <article
+                      key={entry.id}
+                      className="rounded-xl border border-neutral-800 bg-neutral-950/70 p-4"
+                    >
+                      <div className="flex flex-wrap items-start gap-3">
+                        <span className="font-mono text-xs text-neutral-600">
+                          {formatTimestamp(entry.timestamp)}
                         </span>
+                        <span
+                          className={[
+                            'rounded-full px-2 py-1 text-[11px] font-medium uppercase tracking-wide',
+                            protocolConfig.color,
+                          ].join(' ')}
+                        >
+                          {protocolConfig.label}
+                        </span>
+                        <span className="rounded-full border border-neutral-700 px-2 py-1 text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+                          {DIRECTION_LABELS[entry.direction]}
+                        </span>
+                        <span className="mt-0.5">{icon}</span>
+                        <h3 className="flex-1 text-sm font-medium text-neutral-100">
+                          {entry.summary}
+                        </h3>
+                      </div>
+
+                      {entry.payload !== undefined && (
+                        <pre className="mt-3 overflow-x-auto rounded-lg border border-neutral-800 bg-black/30 p-3 text-xs text-neutral-300">
+                          {JSON.stringify(entry.payload, null, 2)}
+                        </pre>
                       )}
-                    </div>
+                    </article>
                   );
                 })}
-              </div>
             </div>
           </div>
         )}
@@ -213,28 +176,37 @@ export const Logs: FunctionComponent<LogsProps> = ({ logs, onClear }) => {
   );
 };
 
-/**
- * Generate a unique log entry ID
- */
-export function generateLogId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+interface FilterGroupProps {
+  label: string;
+  value: string;
+  options: readonly string[];
+  onChange: (value: string) => void;
 }
 
-/**
- * Create a new log entry
- */
-export function createLogEntry(
-  type: LogEntry['type'],
-  level: LogEntry['level'],
-  message: string,
-  data?: unknown
-): LogEntry {
-  return {
-    id: generateLogId(),
-    timestamp: new Date(),
-    type,
-    level,
-    message,
-    data,
-  };
+function FilterGroup({ label, value, options, onChange }: FilterGroupProps) {
+  return (
+    <label className="flex items-center gap-2 rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-400">
+      <span className="whitespace-nowrap">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full bg-transparent text-neutral-100 outline-none"
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function formatTimestamp(timestamp: string): string {
+  const date = new Date(timestamp);
+  const hours = date.getHours().toString().padStart(2, '0');
+  const minutes = date.getMinutes().toString().padStart(2, '0');
+  const seconds = date.getSeconds().toString().padStart(2, '0');
+  const millis = date.getMilliseconds().toString().padStart(3, '0');
+  return `${hours}:${minutes}:${seconds}.${millis}`;
 }
