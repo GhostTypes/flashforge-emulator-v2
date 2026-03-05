@@ -67,6 +67,12 @@ export class UdpDiscoveryServer extends EventEmitter {
   #sockets: dgram.Socket[] = [];
   /** Whether the server is running */
   #running = false;
+  /** Whether startup is in progress */
+  #startupInProgress = false;
+  /** Number of sockets expected for the selected discovery mode */
+  #expectedSocketCount = 0;
+  /** Number of sockets that have fully bound/listened */
+  #listeningSocketCount = 0;
   /** Current printer model */
   #model: PrinterModel;
   /** Bind address for the discovery server (empty = all interfaces) */
@@ -102,7 +108,7 @@ export class UdpDiscoveryServer extends EventEmitter {
    * Starts the UDP discovery server
    */
   start(): boolean {
-    if (this.#running) {
+    if (this.#running || this.#startupInProgress) {
       return true;
     }
 
@@ -110,17 +116,21 @@ export class UdpDiscoveryServer extends EventEmitter {
       const state = printerStateStore.state;
       const mode = state.protocolMode;
 
+      this.#startupInProgress = true;
+      this.#listeningSocketCount = 0;
+      this.#expectedSocketCount = mode === 'modern' ? 2 : 1;
+
       if (mode === 'modern') {
         this.#createSocket(48899, false); // broadcast
         this.#createSocket(19000, true); // multicast
       } else {
         this.#createSocket(8899, true); // multicast
       }
-
-      this.#running = true;
-      this.emit('started');
       return true;
     } catch (error) {
+      this.#startupInProgress = false;
+      this.#expectedSocketCount = 0;
+      this.#listeningSocketCount = 0;
       this.emit('error', error);
       return false;
     }
@@ -130,9 +140,11 @@ export class UdpDiscoveryServer extends EventEmitter {
    * Stops the UDP discovery server
    */
   stop(): void {
-    if (!this.#running) {
+    if (!this.#running && !this.#startupInProgress) {
       return;
     }
+
+    this.#startupInProgress = false;
 
     for (const socket of this.#sockets) {
       try {
@@ -142,6 +154,8 @@ export class UdpDiscoveryServer extends EventEmitter {
       }
     }
     this.#sockets = [];
+    this.#expectedSocketCount = 0;
+    this.#listeningSocketCount = 0;
     this.#running = false;
     this.emit('stopped');
   }
@@ -154,6 +168,10 @@ export class UdpDiscoveryServer extends EventEmitter {
     this.#sockets.push(socket);
 
     socket.on('error', (error) => {
+      if (this.#startupInProgress && !this.#running) {
+        this.#abortStartup(error);
+        return;
+      }
       this.emit('error', error);
     });
 
@@ -174,17 +192,54 @@ export class UdpDiscoveryServer extends EventEmitter {
           }
         }
       } catch (err) {
-        this.emit(
-          'error',
-          new Error(
-            `Failed to configure connection for port ${port}: ${err instanceof Error ? err.message : String(err)}`
-          )
+        const error = new Error(
+          `Failed to configure connection for port ${port}: ${err instanceof Error ? err.message : String(err)}`
         );
+        if (this.#startupInProgress && !this.#running) {
+          this.#abortStartup(error);
+          return;
+        }
+        this.emit('error', error);
+        return;
       }
+
+      this.#markSocketListening();
     });
 
     const bindAddress = this.#bindAddress || undefined;
     socket.bind({ port, address: bindAddress });
+  }
+
+  #markSocketListening(): void {
+    this.#listeningSocketCount += 1;
+
+    if (
+      this.#startupInProgress &&
+      this.#expectedSocketCount > 0 &&
+      this.#listeningSocketCount >= this.#expectedSocketCount
+    ) {
+      this.#startupInProgress = false;
+      this.#running = true;
+      this.emit('started');
+    }
+  }
+
+  #abortStartup(error: Error): void {
+    this.#startupInProgress = false;
+
+    for (const socket of this.#sockets) {
+      try {
+        socket.close();
+      } catch {
+        // Ignore close errors while aborting startup
+      }
+    }
+
+    this.#sockets = [];
+    this.#running = false;
+    this.#expectedSocketCount = 0;
+    this.#listeningSocketCount = 0;
+    this.emit('error', error);
   }
 
   /**
@@ -197,7 +252,7 @@ export class UdpDiscoveryServer extends EventEmitter {
     this.#model = model;
 
     // If the required discovery protocol mode differs, restart the server
-    if (this.#running && currentMode !== newMode) {
+    if ((this.#running || this.#startupInProgress) && currentMode !== newMode) {
       this.stop();
       this.start();
     }
@@ -211,7 +266,7 @@ export class UdpDiscoveryServer extends EventEmitter {
     this.#bindAddress = address;
 
     // Restart server if address changed and server is running
-    if (oldAddress !== address && this.#running) {
+    if (oldAddress !== address && (this.#running || this.#startupInProgress)) {
       this.stop();
       this.start();
     }

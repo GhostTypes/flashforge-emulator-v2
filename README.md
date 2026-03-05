@@ -38,6 +38,52 @@ npm run build:mac    # macOS
 npm run build:linux  # Linux
 ```
 
+## Headless + Multi-instance for E2E
+
+Run one headless emulator instance (no Electron UI):
+
+```bash
+npm run headless:instance -- \
+  --instance-id printer-a \
+  --model adventurer-5m-pro \
+  --serial E2E-SN-A \
+  --check-code E2E-CODE-A \
+  --machine-name "E2E Printer A" \
+  --tcp-port 28899 \
+  --http-port 28898 \
+  --discovery-enabled true \
+  --simulation-mode auto \
+  --simulation-speed 100
+```
+
+When startup is complete, the process prints:
+
+```text
+EMULATOR_READY
+{"instanceId":"printer-a","ip":"...","tcpPort":28899,"httpPort":28898,"serial":"E2E-SN-A","model":"adventurer-5m-pro"}
+```
+
+Health/readiness endpoint:
+
+```bash
+curl http://127.0.0.1:28898/__health
+```
+
+Run multiple instances from JSON:
+
+```bash
+npm run headless:supervisor -- --config scripts/headless/multi-instance.example.json
+```
+
+Supervisor enforces unique instance IDs, serials, and runtime ports (`tcpPort` + `httpPort`), emits `EMULATOR_READY` lines per instance, and exits non-zero if any instance fails startup.
+
+Run headless tests:
+
+```bash
+npm run test:unit
+npm run test:integration
+```
+
 ## Manual QA Checklist
 
 - Set the printer to `completed` in the QA Console and confirm that state stays visible and a new print cannot start from the File Manager or `Run Auto Lifecycle`.

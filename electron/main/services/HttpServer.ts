@@ -58,6 +58,13 @@ interface ApiResponse<T = unknown> {
   imageData?: string;
 }
 
+interface HealthState {
+  instanceId: string;
+  tcpPort: number;
+  ready: boolean;
+  startedAtMs: number;
+}
+
 /**
  * Control command argument types
  */
@@ -243,6 +250,8 @@ export class HttpServer extends EventEmitter {
   #running = false;
   /** Current printer model */
   #model: PrinterModel;
+  /** Headless health/readiness metadata */
+  #healthState: HealthState;
 
   /**
    * Gets the current port
@@ -269,6 +278,12 @@ export class HttpServer extends EventEmitter {
     super();
     this.#port = port;
     this.#model = model;
+    this.#healthState = {
+      instanceId: 'default',
+      tcpPort: printerStateStore.config.tcpPort,
+      ready: true,
+      startedAtMs: Date.now(),
+    };
     this.#app = express();
     this.#setupMiddleware();
     this.#setupRoutes();
@@ -317,6 +332,9 @@ export class HttpServer extends EventEmitter {
    * Sets up API routes
    */
   #setupRoutes(): void {
+    // GET /__health - Runtime readiness and identity
+    this.#app.get('/__health', this.#handleHealth.bind(this));
+
     // POST /detail - Get printer details
     this.#app.post('/detail', this.#handleDetail.bind(this));
 
@@ -464,6 +482,21 @@ export class HttpServer extends EventEmitter {
     this.emit('response-sent', { path: '/detail', detail });
     res.json(this.#success(detail));
   });
+
+  #handleHealth(_req: Request, res: Response): void {
+    const state = printerStateStore.state;
+    const uptimeMs = Math.max(0, Date.now() - this.#healthState.startedAtMs);
+
+    res.json({
+      ok: this.#healthState.ready,
+      instanceId: this.#healthState.instanceId,
+      model: this.#model,
+      serial: state.serialNumber,
+      tcpPort: this.#healthState.tcpPort,
+      httpPort: this.#port,
+      uptimeMs,
+    });
+  }
 
   /**
    * POST /product - Get product feature availability
@@ -878,6 +911,14 @@ export class HttpServer extends EventEmitter {
     });
 
     return true;
+  }
+
+  configureHealthState(healthState: Partial<HealthState>): void {
+    this.#healthState = {
+      ...this.#healthState,
+      ...healthState,
+      startedAtMs: healthState.startedAtMs ?? this.#healthState.startedAtMs,
+    };
   }
 
   /**

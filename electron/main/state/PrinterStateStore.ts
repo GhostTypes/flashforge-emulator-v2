@@ -268,17 +268,27 @@ export class PrinterStateStore extends EventEmitter {
   }
 
   updateConfig(config: Partial<EmulatorConfig>): void {
+    const nextTcpPort = config.tcpPort ?? this.#config.tcpPort;
+    const nextHttpPort = config.httpPort ?? this.#config.httpPort;
     const nextDiscoveryConfig =
       config.discoveryConfig !== undefined
         ? {
             ...this.#config.discoveryConfig,
             ...config.discoveryConfig,
           }
-        : this.#config.discoveryConfig;
+        : {
+            ...this.#config.discoveryConfig,
+          };
+
+    // Discovery advertisements must always reflect the runtime command/http ports.
+    nextDiscoveryConfig.commandPort = nextTcpPort;
+    nextDiscoveryConfig.httpPort = nextHttpPort;
 
     this.#config = {
       ...this.#config,
       ...config,
+      tcpPort: nextTcpPort,
+      httpPort: nextHttpPort,
       discoveryConfig: nextDiscoveryConfig,
     };
 
@@ -299,6 +309,34 @@ export class PrinterStateStore extends EventEmitter {
     }
     if (config.cumulativeFilament !== undefined) {
       this.#state.cumulativeFilament = config.cumulativeFilament;
+    }
+
+    this.emit('state-changed', this.#state);
+  }
+
+  setMachineIdentity(identity: {
+    serialNumber?: string;
+    checkCode?: string;
+    machineName?: string;
+    ipAddress?: string;
+  }): void {
+    if (identity.serialNumber !== undefined) {
+      this.#state.serialNumber = identity.serialNumber;
+      this.#config.serialNumber = identity.serialNumber;
+    }
+
+    if (identity.checkCode !== undefined) {
+      this.#state.checkCode = identity.checkCode;
+      this.#config.checkCode = identity.checkCode;
+    }
+
+    if (identity.machineName !== undefined) {
+      this.#state.machineName = identity.machineName;
+      this.#config.discoveryConfig.machineName = identity.machineName;
+    }
+
+    if (identity.ipAddress !== undefined) {
+      this.#state.ipAddress = identity.ipAddress;
     }
 
     this.emit('state-changed', this.#state);

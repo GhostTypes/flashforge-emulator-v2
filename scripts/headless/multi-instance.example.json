@@ -1,0 +1,28 @@
+{
+  "instances": [
+    {
+      "instanceId": "alpha",
+      "model": "adventurer-5m-pro",
+      "serial": "E2E-SN-ALPHA",
+      "checkCode": "E2E-CODE-ALPHA",
+      "machineName": "E2E Alpha",
+      "tcpPort": 28899,
+      "httpPort": 28898,
+      "discoveryEnabled": true,
+      "simulationMode": "auto",
+      "simulationSpeed": 100
+    },
+    {
+      "instanceId": "beta",
+      "model": "adventurer-5m",
+      "serial": "E2E-SN-BETA",
+      "checkCode": "E2E-CODE-BETA",
+      "machineName": "E2E Beta",
+      "tcpPort": 28999,
+      "httpPort": 28998,
+      "discoveryEnabled": true,
+      "simulationMode": "auto",
+      "simulationSpeed": 100
+    }
+  ]
+}
