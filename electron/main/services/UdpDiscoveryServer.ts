@@ -276,8 +276,8 @@ export class UdpDiscoveryServer extends EventEmitter {
    * Handles incoming discovery packets
    */
   #handleDiscovery(buffer: Buffer, rinfo: dgram.RemoteInfo, originSocket: dgram.Socket): void {
-    // Ignore empty/meaningless noise
-    if (!buffer || buffer.length === 0) {
+    // Accept any UDP payload (including zero-length) for discovery probes.
+    if (!buffer) {
       return;
     }
 
@@ -313,8 +313,8 @@ export class UdpDiscoveryServer extends EventEmitter {
       response = createModernResponse(state, config.discoveryConfig);
     }
 
-    // Typical clients (like FlashForgeUI) listen on port 18007 for responses
-    const responsePort = 18007;
+    // Discovery responses must be sent back to the source port that sent the probe.
+    const responsePort = rinfo.port;
 
     originSocket.send(response, responsePort, rinfo.address, (error) => {
       if (error) {

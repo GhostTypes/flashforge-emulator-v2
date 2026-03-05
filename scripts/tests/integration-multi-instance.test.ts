@@ -60,6 +60,16 @@ function getFreePort(): Promise<number> {
   });
 }
 
+async function getFreePortExcluding(excluded: readonly number[]): Promise<number> {
+  const excludedSet = new Set(excluded);
+  while (true) {
+    const port = await getFreePort();
+    if (!excludedSet.has(port)) {
+      return port;
+    }
+  }
+}
+
 function wait(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -178,6 +188,79 @@ async function sendDiscoveryProbes(attempts = 10): Promise<void> {
   }
 
   sender.close();
+}
+
+async function probeDiscoveryReply(params: {
+  sourcePort: number;
+  targetPort: number;
+  targetAddress?: string;
+  timeoutMs?: number;
+  payload?: Buffer;
+}): Promise<{ bytes: number; fromPort: number }> {
+  const {
+    sourcePort,
+    targetPort,
+    targetAddress = '127.0.0.1',
+    timeoutMs = 3_000,
+    payload = Buffer.from('e2e-port-probe'),
+  } = params;
+  const sender = dgram.createSocket('udp4');
+
+  try {
+    await new Promise<void>((resolve, reject) => {
+      sender.once('error', reject);
+      sender.bind(sourcePort, '0.0.0.0', () => {
+        sender.off('error', reject);
+        resolve();
+      });
+    });
+
+    sender.setBroadcast(true);
+
+    return await new Promise<{ bytes: number; fromPort: number }>((resolve, reject) => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+      const cleanup = (): void => {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        sender.off('message', onMessage);
+        sender.off('error', onError);
+      };
+
+      const onMessage = (data: Buffer, rinfo: dgram.RemoteInfo): void => {
+        cleanup();
+        resolve({ bytes: data.length, fromPort: rinfo.port });
+      };
+
+      const onError = (error: Error): void => {
+        cleanup();
+        reject(error);
+      };
+
+      sender.on('message', onMessage);
+      sender.on('error', onError);
+
+      sender.send(payload, targetPort, targetAddress, (error) => {
+        if (error) {
+          cleanup();
+          reject(error);
+          return;
+        }
+
+        timeoutId = setTimeout(() => {
+          cleanup();
+          reject(
+            new Error(
+              `Timed out waiting for discovery response on source port ${sourcePort} after probing ${targetAddress}:${targetPort}`
+            )
+          );
+        }, timeoutMs);
+      });
+    });
+  } finally {
+    sender.close();
+  }
 }
 
 function waitForSupervisorExit(
@@ -344,6 +427,39 @@ test(
         const unauthorizedCode = await postDetail(payload.httpPort, payload.serial, 'WRONG-CODE');
         assert.equal(unauthorizedCode, 3);
       }
+
+      // Discovery responses must return to the probe sender port (not a fixed port).
+      const broadcastProbeSourcePort = await getFreePortExcluding([18007]);
+      const broadcastProbeResponse = await probeDiscoveryReply({
+        sourcePort: broadcastProbeSourcePort,
+        targetPort: 48899,
+      });
+      assert.equal(broadcastProbeResponse.bytes, 276);
+      assert.equal(broadcastProbeResponse.fromPort, 48899);
+
+      const multicastProbeSourcePort = await getFreePortExcluding([
+        18007,
+        broadcastProbeSourcePort,
+      ]);
+      const multicastProbeResponse = await probeDiscoveryReply({
+        sourcePort: multicastProbeSourcePort,
+        targetPort: 19000,
+      });
+      assert.equal(multicastProbeResponse.bytes, 276);
+      assert.equal(multicastProbeResponse.fromPort, 19000);
+
+      const emptyProbeSourcePort = await getFreePortExcluding([
+        18007,
+        broadcastProbeSourcePort,
+        multicastProbeSourcePort,
+      ]);
+      const emptyProbeResponse = await probeDiscoveryReply({
+        sourcePort: emptyProbeSourcePort,
+        targetPort: 48899,
+        payload: Buffer.alloc(0),
+      });
+      assert.equal(emptyProbeResponse.bytes, 276);
+      assert.equal(emptyProbeResponse.fromPort, 48899);
 
       await sendDiscoveryProbes();
       const discoveryDeadline = Date.now() + 5_000;
