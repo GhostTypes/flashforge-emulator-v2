@@ -95,7 +95,7 @@ class ResponseBuilder {
    * Builds a control failed response
    */
   static controlFailed(): string {
-    return 'Control Failed.\nok\n';
+    return 'Control failed.\nok\n';
   }
 
   /**
@@ -275,10 +275,7 @@ export class TcpServer extends EventEmitter {
   #handleDisconnect(client: TcpClient): void {
     this.#clients.delete(client.socket);
 
-    // Release control if client had control
-    if (client.state === 'control-active') {
-      printerStateStore.setTcpControlActive(false);
-    }
+    this.#syncControlState();
 
     this.emit('client-disconnected', client.remoteAddress);
     protocolLogStore.add({
@@ -352,6 +349,13 @@ export class TcpServer extends EventEmitter {
               base64Preview: response.toString('base64').slice(0, 80),
             },
     });
+  }
+
+  #syncControlState(): void {
+    const hasActiveControlClient = Array.from(this.#clients.values()).some(
+      (connectedClient) => connectedClient.state === 'control-active'
+    );
+    printerStateStore.setTcpControlActive(hasActiveControlClient);
   }
 
   /**
@@ -496,13 +500,8 @@ export class TcpServer extends EventEmitter {
    * M601 - Request control
    */
   #handleM601(client: TcpClient): string {
-    if (printerStateStore.state.tcpControlActive) {
-      // Another client has control
-      return ResponseBuilder.controlFailed();
-    }
-
     client.state = 'control-active';
-    printerStateStore.setTcpControlActive(true);
+    this.#syncControlState();
     return new ResponseBuilder().cmdReceived('M601').build() + ResponseBuilder.controlSuccess();
   }
 
@@ -511,7 +510,7 @@ export class TcpServer extends EventEmitter {
    */
   #handleM602(client: TcpClient): string {
     client.state = 'connected';
-    printerStateStore.setTcpControlActive(false);
+    this.#syncControlState();
     return new ResponseBuilder().cmdReceived('M602').build() + ResponseBuilder.controlRelease();
   }
 

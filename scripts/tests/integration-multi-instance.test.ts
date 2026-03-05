@@ -166,6 +166,84 @@ async function runTcpHandshake(port: number): Promise<string> {
   }
 }
 
+function sendTcpCommand(socket: net.Socket, command: string, settleMs = 200): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let output = '';
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = (): void => {
+      socket.off('data', onData);
+      socket.off('error', onError);
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+
+    const finish = (): void => {
+      cleanup();
+      resolve(output);
+    };
+
+    const onData = (chunk: Buffer): void => {
+      output += chunk.toString('utf-8');
+      if (timer) {
+        clearTimeout(timer);
+      }
+      timer = setTimeout(finish, settleMs);
+    };
+
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+
+    socket.on('data', onData);
+    socket.on('error', onError);
+    socket.write(`${command}\n`);
+  });
+}
+
+async function runDualControlAndM115Handshake(port: number): Promise<{
+  firstLogin: string;
+  secondLogin: string;
+  firstInfo: string;
+  secondInfo: string;
+}> {
+  const first = await new Promise<net.Socket>((resolve, reject) => {
+    const client = net.createConnection({ host: '127.0.0.1', port });
+    client.once('error', reject);
+    client.once('connect', () => resolve(client));
+  });
+
+  const second = await new Promise<net.Socket>((resolve, reject) => {
+    const client = net.createConnection({ host: '127.0.0.1', port });
+    client.once('error', reject);
+    client.once('connect', () => resolve(client));
+  });
+
+  try {
+    const firstLogin = await sendTcpCommand(first, 'M601');
+    const secondLogin = await sendTcpCommand(second, 'M601');
+    const firstInfo = await sendTcpCommand(first, 'M115');
+    const secondInfo = await sendTcpCommand(second, 'M115');
+
+    await sendTcpCommand(first, 'M602');
+    await sendTcpCommand(second, 'M602');
+
+    return {
+      firstLogin,
+      secondLogin,
+      firstInfo,
+      secondInfo,
+    };
+  } finally {
+    first.end();
+    first.destroy();
+    second.end();
+    second.destroy();
+  }
+}
+
 async function sendDiscoveryProbes(attempts = 10): Promise<void> {
   const sender = dgram.createSocket('udp4');
 
@@ -414,6 +492,14 @@ test(
       for (const payload of readyPayloads) {
         const tcpResponse = await runTcpHandshake(payload.tcpPort);
         assert.match(tcpResponse, /Control Success V2\.1\./);
+      }
+
+      for (const payload of readyPayloads) {
+        const dualSession = await runDualControlAndM115Handshake(payload.tcpPort);
+        assert.match(dualSession.firstLogin, /Control Success V2\.1\./);
+        assert.match(dualSession.secondLogin, /Control Success V2\.1\./);
+        assert.match(dualSession.firstInfo, /Machine Type:/);
+        assert.match(dualSession.secondInfo, /Machine Type:/);
       }
 
       for (const payload of readyPayloads) {
