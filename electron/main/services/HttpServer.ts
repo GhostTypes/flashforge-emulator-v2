@@ -107,6 +107,14 @@ interface AuthenticatedRequest {
   materialMappings?: unknown[];
 }
 
+interface AD5XMaterialMappingPayload {
+  toolId: number;
+  slotId: number;
+  materialName: string;
+  toolMaterialColor: string;
+  slotMaterialColor: string;
+}
+
 interface RequestWithUpload extends Request {
   file?: Express.Multer.File;
 }
@@ -155,6 +163,56 @@ function estimatePrintTime(fileSize: number): number {
   const minutesPerMB = 10;
   const fileSizeMB = fileSize / (1024 * 1024);
   return Math.max(60, Math.floor(fileSizeMB * minutesPerMB * 60));
+}
+
+function isAD5XMaterialMappingPayload(value: unknown): value is AD5XMaterialMappingPayload {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate['toolId'] === 'number' &&
+    Number.isFinite(candidate['toolId']) &&
+    typeof candidate['slotId'] === 'number' &&
+    Number.isFinite(candidate['slotId']) &&
+    typeof candidate['materialName'] === 'string' &&
+    typeof candidate['toolMaterialColor'] === 'string' &&
+    typeof candidate['slotMaterialColor'] === 'string'
+  );
+}
+
+function buildGcodeToolDatas(
+  rawMappings: readonly unknown[],
+  requestedToolCount: number
+): GcodeToolData[] {
+  const mappedTools = rawMappings
+    .filter((mapping): mapping is AD5XMaterialMappingPayload =>
+      isAD5XMaterialMappingPayload(mapping)
+    )
+    .map((mapping) => ({
+      toolId: mapping.toolId,
+      materialName: mapping.materialName || 'PLA',
+      materialColor: mapping.toolMaterialColor || '#4DA3FF',
+      filamentWeight: 0,
+      slotId: mapping.slotId,
+    }));
+
+  if (mappedTools.length > 0) {
+    return mappedTools;
+  }
+
+  if (requestedToolCount <= 0) {
+    return [];
+  }
+
+  return Array.from({ length: requestedToolCount }, (_, index) => ({
+    toolId: index,
+    materialName: 'PLA',
+    materialColor: '#4DA3FF',
+    filamentWeight: 0,
+    slotId: 0,
+  }));
 }
 
 function buildHttpLogPayload(req: Request): Record<string, unknown> {
@@ -767,7 +825,9 @@ export class HttpServer extends EventEmitter {
     // Parse AD5X headers
     const flowCalibration = req.headers['flowcalibration'] === 'true';
     const useMatlStation = req.headers['usematlstation'] === 'true';
-    const gcodeToolCnt = Number.parseInt(req.headers['gcodetoolcnt'] as string, 10) || 0;
+    const parsedGcodeToolCnt = Number.parseInt(req.headers['gcodetoolcnt'] as string, 10);
+    const gcodeToolCnt =
+      Number.isFinite(parsedGcodeToolCnt) && parsedGcodeToolCnt > 0 ? parsedGcodeToolCnt : 0;
 
     // Base64 decode materialMappings if present
     let materialMappings: unknown[] = [];
@@ -786,22 +846,9 @@ export class HttpServer extends EventEmitter {
     const printTime = estimatePrintTime(fileSize);
     const is3mf = fileName.toLowerCase().endsWith('.3mf');
 
-    // Build gcodeToolDatas from materialMappings if available
-    const gcodeToolDatas: GcodeToolData[] = [];
-    if (materialMappings.length > 0) {
-      materialMappings.forEach((mapping: unknown, index: number) => {
-        if (typeof mapping === 'object' && mapping !== null) {
-          const m = mapping as Record<string, unknown>;
-          gcodeToolDatas.push({
-            toolIndex: index,
-            filamentType: (m['filamentType'] as string) ?? 'PLA',
-            filamentColor: (m['filamentColor'] as string) ?? '#000000',
-            filamentLen: (m['filamentLen'] as number) ?? 0,
-            filamentWeight: (m['filamentWeight'] as number) ?? 0,
-          });
-        }
-      });
-    }
+    const gcodeToolDatas = buildGcodeToolDatas(materialMappings, gcodeToolCnt);
+    const resolvedToolCount = gcodeToolDatas.length > 0 ? gcodeToolDatas.length : gcodeToolCnt;
+    const resolvedUseMaterialStation = useMatlStation || resolvedToolCount > 0;
 
     // Calculate total filament weight from tool data
     const totalFilamentWeight = gcodeToolDatas.reduce((sum, tool) => sum + tool.filamentWeight, 0);
@@ -818,9 +865,9 @@ export class HttpServer extends EventEmitter {
       size: fileSize,
       printTime,
       is3mf,
-      gcodeToolCnt: gcodeToolCnt ?? gcodeToolDatas.length ?? 1,
+      gcodeToolCnt: resolvedToolCount,
       gcodeToolDatas,
-      useMatlStation: useMatlStation ?? false,
+      useMatlStation: resolvedUseMaterialStation,
       totalFilamentWeight,
       thumbnail,
     };
@@ -831,8 +878,8 @@ export class HttpServer extends EventEmitter {
     // Store AD5X parameters for this upload
     const ad5xParams = {
       flowCalibration,
-      useMatlStation,
-      gcodeToolCnt,
+      useMatlStation: resolvedUseMaterialStation,
+      gcodeToolCnt: resolvedToolCount,
       materialMappings,
     };
 

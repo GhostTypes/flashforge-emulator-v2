@@ -30,6 +30,26 @@ interface HealthPayload {
   uptimeMs: number;
 }
 
+interface GcodeToolDataPayload {
+  toolId: number;
+  materialName: string;
+  materialColor: string;
+  filamentWeight: number;
+  slotId: number;
+}
+
+interface GcodeListDetailEntry {
+  gcodeFileName: string;
+  gcodeToolCnt?: number;
+  gcodeToolDatas?: GcodeToolDataPayload[];
+  useMatlStation?: boolean;
+}
+
+interface GcodeListResponse {
+  code: number;
+  gcodeListDetail?: GcodeListDetailEntry[];
+}
+
 function getRunnerCommand(): { command: string; prefixArgs: string[] } {
   return {
     command: process.execPath,
@@ -85,6 +105,65 @@ async function postDetail(httpPort: number, serial: string, checkCode: string): 
   assert.equal(response.status, 200);
   const body = (await response.json()) as { code: number };
   return body.code;
+}
+
+async function uploadGcodeWithMappings(params: {
+  httpPort: number;
+  serial: string;
+  checkCode: string;
+  fileName: string;
+  materialMappings: Array<{
+    toolId: number;
+    slotId: number;
+    materialName: string;
+    toolMaterialColor: string;
+    slotMaterialColor: string;
+  }>;
+}): Promise<void> {
+  const formData = new FormData();
+  formData.set('gcodeFile', new Blob([';E2E MULTI COLOR TEST\nG28\nM84\n']), params.fileName);
+
+  const materialMappingsBase64 = Buffer.from(
+    JSON.stringify(params.materialMappings),
+    'utf-8'
+  ).toString('base64');
+
+  const response = await fetch(`http://127.0.0.1:${params.httpPort}/uploadGcode`, {
+    method: 'POST',
+    headers: {
+      serialNumber: params.serial,
+      checkCode: params.checkCode,
+      printNow: 'false',
+      levelingBeforePrint: 'false',
+      flowCalibration: 'false',
+      useMatlStation: 'true',
+      gcodeToolCnt: String(params.materialMappings.length),
+      materialMappings: materialMappingsBase64,
+    },
+    body: formData,
+  });
+
+  assert.equal(response.status, 200);
+  const body = (await response.json()) as { code: number; message: string };
+  assert.equal(body.code, 0, body.message);
+}
+
+async function fetchGcodeList(params: {
+  httpPort: number;
+  serial: string;
+  checkCode: string;
+}): Promise<GcodeListResponse> {
+  const response = await fetch(`http://127.0.0.1:${params.httpPort}/gcodeList`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      serialNumber: params.serial,
+      checkCode: params.checkCode,
+    }),
+  });
+
+  assert.equal(response.status, 200);
+  return (await response.json()) as GcodeListResponse;
 }
 
 async function waitForHealthReady(httpPort: number, timeoutMs: number): Promise<HealthPayload> {
@@ -274,7 +353,7 @@ async function probeDiscoveryReply(params: {
   targetAddress?: string;
   timeoutMs?: number;
   payload?: Buffer;
-}): Promise<{ bytes: number; fromPort: number }> {
+}): Promise<{ bytes: number; fromPort: number; packet: Buffer }> {
   const {
     sourcePort,
     targetPort,
@@ -295,47 +374,49 @@ async function probeDiscoveryReply(params: {
 
     sender.setBroadcast(true);
 
-    return await new Promise<{ bytes: number; fromPort: number }>((resolve, reject) => {
-      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    return await new Promise<{ bytes: number; fromPort: number; packet: Buffer }>(
+      (resolve, reject) => {
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
-      const cleanup = (): void => {
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-        }
-        sender.off('message', onMessage);
-        sender.off('error', onError);
-      };
+        const cleanup = (): void => {
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          sender.off('message', onMessage);
+          sender.off('error', onError);
+        };
 
-      const onMessage = (data: Buffer, rinfo: dgram.RemoteInfo): void => {
-        cleanup();
-        resolve({ bytes: data.length, fromPort: rinfo.port });
-      };
+        const onMessage = (data: Buffer, rinfo: dgram.RemoteInfo): void => {
+          cleanup();
+          resolve({ bytes: data.length, fromPort: rinfo.port, packet: data });
+        };
 
-      const onError = (error: Error): void => {
-        cleanup();
-        reject(error);
-      };
-
-      sender.on('message', onMessage);
-      sender.on('error', onError);
-
-      sender.send(payload, targetPort, targetAddress, (error) => {
-        if (error) {
+        const onError = (error: Error): void => {
           cleanup();
           reject(error);
-          return;
-        }
+        };
 
-        timeoutId = setTimeout(() => {
-          cleanup();
-          reject(
-            new Error(
-              `Timed out waiting for discovery response on source port ${sourcePort} after probing ${targetAddress}:${targetPort}`
-            )
-          );
-        }, timeoutMs);
-      });
-    });
+        sender.on('message', onMessage);
+        sender.on('error', onError);
+
+        sender.send(payload, targetPort, targetAddress, (error) => {
+          if (error) {
+            cleanup();
+            reject(error);
+            return;
+          }
+
+          timeoutId = setTimeout(() => {
+            cleanup();
+            reject(
+              new Error(
+                `Timed out waiting for discovery response on source port ${sourcePort} after probing ${targetAddress}:${targetPort}`
+              )
+            );
+          }, timeoutMs);
+        });
+      }
+    );
   } finally {
     sender.close();
   }
@@ -370,7 +451,7 @@ function waitForSupervisorExit(
 
 test(
   'multi-instance supervisor launches deterministic headless instances for E2E',
-  { timeout: TEST_TIMEOUT_MS },
+  { timeout: TEST_TIMEOUT_MS, concurrency: false },
   async () => {
     const ports = await Promise.all([getFreePort(), getFreePort(), getFreePort(), getFreePort()]);
     const [tcpPortA, httpPortA, tcpPortB, httpPortB] = ports;
@@ -514,6 +595,60 @@ test(
         assert.equal(unauthorizedCode, 3);
       }
 
+      const alphaPayload = readyByInstance.get('alpha');
+      assert.ok(alphaPayload, 'Missing alpha readiness payload');
+      await uploadGcodeWithMappings({
+        httpPort: alphaPayload.httpPort,
+        serial: alphaPayload.serial,
+        checkCode: 'E2E-CODE-ALPHA',
+        fileName: 'e2e-multi-material.3mf',
+        materialMappings: [
+          {
+            toolId: 0,
+            slotId: 1,
+            materialName: 'PLA',
+            toolMaterialColor: '#4DA3FF',
+            slotMaterialColor: '#4DA3FF',
+          },
+          {
+            toolId: 1,
+            slotId: 2,
+            materialName: 'PETG',
+            toolMaterialColor: '#FF8A3D',
+            slotMaterialColor: '#FF8A3D',
+          },
+        ],
+      });
+
+      const gcodeListPayload = await fetchGcodeList({
+        httpPort: alphaPayload.httpPort,
+        serial: alphaPayload.serial,
+        checkCode: 'E2E-CODE-ALPHA',
+      });
+
+      const uploadedEntry = gcodeListPayload.gcodeListDetail?.find(
+        (entry) => entry.gcodeFileName === 'e2e-multi-material.3mf'
+      );
+      assert.ok(uploadedEntry, 'Uploaded multi-material file should appear in gcodeListDetail');
+      assert.equal(uploadedEntry.gcodeToolCnt, 2);
+      assert.equal(uploadedEntry.useMatlStation, true);
+      assert.deepEqual(uploadedEntry.gcodeToolDatas, [
+        {
+          toolId: 0,
+          materialName: 'PLA',
+          materialColor: '#4DA3FF',
+          filamentWeight: 0,
+          slotId: 1,
+        },
+        {
+          toolId: 1,
+          materialName: 'PETG',
+          materialColor: '#FF8A3D',
+          filamentWeight: 0,
+          slotId: 2,
+        },
+      ]);
+
       // Discovery responses must return to the probe sender port (not a fixed port).
       const broadcastProbeSourcePort = await getFreePortExcluding([18007]);
       const broadcastProbeResponse = await probeDiscoveryReply({
@@ -565,6 +700,103 @@ test(
       await waitForSupervisorExit(supervisor);
       stdoutReader.close();
       stderrReader.close();
+    }
+  }
+);
+
+test(
+  'legacy discovery response uses ff-api-compatible 140-byte layout for Adventurer 4',
+  { timeout: TEST_TIMEOUT_MS, concurrency: false },
+  async () => {
+    const tcpPort = await getFreePort();
+    const httpPort = await getFreePort();
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'ff-emulator-legacy-discovery-'));
+    const configPath = path.join(tempDir, 'instances.json');
+
+    const config = {
+      instances: [
+        {
+          instanceId: 'legacy-a4',
+          model: 'adventurer-4',
+          serial: 'E2E-SN-LEGACY-A4',
+          checkCode: 'E2E-CODE-LEGACY-A4',
+          machineName: 'Adventurer 4 E2E',
+          tcpPort,
+          httpPort,
+          discoveryEnabled: true,
+          simulationMode: 'auto',
+          simulationSpeed: 100,
+        },
+      ],
+    };
+
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+    const { command, prefixArgs } = getRunnerCommand();
+    const supervisorScript = path.resolve(process.cwd(), 'scripts/headless/run-supervisor.ts');
+    const supervisorArgs = [...prefixArgs, supervisorScript, '--config', configPath];
+    const supervisor = spawn(command, supervisorArgs, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const readyByInstance = new Map<string, ReadyPayload>();
+    let expectingReadyJson = false;
+    const stdoutReader = readline.createInterface({ input: supervisor.stdout });
+    stdoutReader.on('line', (line: string) => {
+      if (expectingReadyJson) {
+        expectingReadyJson = false;
+        const payload = JSON.parse(line) as ReadyPayload;
+        readyByInstance.set(payload.instanceId, payload);
+        return;
+      }
+
+      if (line.trim() === 'EMULATOR_READY') {
+        expectingReadyJson = true;
+      }
+    });
+
+    try {
+      const startupDeadline = Date.now() + 20_000;
+      while (readyByInstance.size < 1 && Date.now() < startupDeadline) {
+        if (supervisor.exitCode !== null) {
+          break;
+        }
+        await wait(100);
+      }
+
+      const ready = readyByInstance.get('legacy-a4');
+      assert.ok(ready, 'Expected legacy-a4 readiness payload');
+      await waitForHealthReady(ready.httpPort, 10_000);
+
+      const sourcePort = await getFreePortExcluding([18007]);
+      const discoveryResponse = await probeDiscoveryReply({
+        sourcePort,
+        targetPort: 8899,
+      });
+
+      assert.equal(discoveryResponse.bytes, 140);
+      assert.equal(discoveryResponse.fromPort, 8899);
+
+      const packet = discoveryResponse.packet;
+      const machineName = packet.toString('utf8', 0x00, 0x80).replace(/\0.*$/, '');
+      const parsedCommandPort = packet.readUInt16BE(0x84);
+      const parsedVid = packet.readUInt16BE(0x86);
+      const parsedPid = packet.readUInt16BE(0x88);
+      const parsedStatus = packet.readUInt16BE(0x8a);
+
+      assert.equal(machineName, 'Adventurer 4 E2E');
+      assert.equal(parsedCommandPort, ready.tcpPort);
+      assert.equal(parsedVid, 0x2b71);
+      assert.equal(parsedPid, 0x001e);
+      assert.equal(parsedStatus, 0);
+    } finally {
+      if (supervisor.exitCode === null) {
+        supervisor.kill('SIGTERM');
+      }
+      await waitForSupervisorExit(supervisor);
+      stdoutReader.close();
     }
   }
 );

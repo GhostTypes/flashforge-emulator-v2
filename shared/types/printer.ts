@@ -329,16 +329,16 @@ export interface EndstopState {
  * G-code tool data for multi-extruder prints (AD5X)
  */
 export interface GcodeToolData {
-  /** Tool index (0 = right, 1 = left) */
-  toolIndex: number;
-  /** Filament type used (e.g., "PLA", "PETG") */
-  filamentType: string;
-  /** Filament color as hex code */
-  filamentColor: string;
-  /** Estimated filament length in mm */
-  filamentLen: number;
+  /** Logical tool index from slicer metadata (0-based) */
+  toolId: number;
+  /** Material type used (e.g., "PLA", "PETG") */
+  materialName: string;
+  /** Material color as hex code */
+  materialColor: string;
   /** Estimated filament weight in grams */
   filamentWeight: number;
+  /** Material station slot for this tool (1-4 for AD5X, 0 for direct/no slot) */
+  slotId: number;
 }
 
 /**
