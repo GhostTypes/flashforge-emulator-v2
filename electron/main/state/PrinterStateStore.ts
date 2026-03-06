@@ -164,6 +164,10 @@ function createDefaultState(model: PrinterModel): PrinterState {
         ? [1, 2, 3, 4].map((id) => ({
             ...EMPTY_SLOT,
             slotId: id,
+            // Keep two loaded slots by default so AD5X single-color and multi-color E2E flows are both testable.
+            hasFilament: id === 1 || id === 2,
+            materialName: id === 1 ? 'PLA' : id === 2 ? 'PETG' : '',
+            materialColor: id === 1 ? '#4DA3FF' : id === 2 ? '#FF8A3D' : EMPTY_SLOT.materialColor,
           }))
         : [],
     },
@@ -216,6 +220,45 @@ function createDefaultState(model: PrinterModel): PrinterState {
   };
 }
 
+function getDiscoveryIdentityDefaultsForModel(model: PrinterModel): {
+  vid: number;
+  pid: number;
+  productType: number;
+  legacyPort2: number;
+} {
+  switch (model) {
+    case 'adventurer-3':
+      return {
+        vid: 0x2b71,
+        pid: 0x0008,
+        productType: 0,
+        legacyPort2: 8,
+      };
+    case 'adventurer-4':
+      return {
+        vid: 0x2b71,
+        pid: 0x001e,
+        productType: 0,
+        legacyPort2: 8,
+      };
+    case 'adventurer-5x':
+      return {
+        vid: 0x2b71,
+        pid: 0x0026,
+        productType: 0x5a02,
+        legacyPort2: 8,
+      };
+    case 'adventurer-5m':
+    case 'adventurer-5m-pro':
+      return {
+        vid: 0x2b71,
+        pid: 0x0024,
+        productType: 0x5a02,
+        legacyPort2: 8,
+      };
+  }
+}
+
 export class PrinterStateStore extends EventEmitter {
   #state: PrinterState;
   #simulationMode: SimulationMode = DEFAULT_CONFIG.simulationMode;
@@ -256,6 +299,12 @@ export class PrinterStateStore extends EventEmitter {
     this.#clearPauseTimeout();
     this.#state = createDefaultState(model);
     this.#config.selectedModel = model;
+    const discoveryIdentityDefaults = getDiscoveryIdentityDefaultsForModel(model);
+    this.#config.discoveryConfig = {
+      ...this.#config.discoveryConfig,
+      ...discoveryIdentityDefaults,
+      machineName: this.#state.machineName,
+    };
     this.#state.serialNumber = this.#config.serialNumber;
     this.#state.checkCode = this.#config.checkCode;
     this.#state.cumulativePrintTime = this.#config.cumulativePrintTime;

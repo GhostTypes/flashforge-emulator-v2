@@ -51,10 +51,17 @@ function createLegacyResponse(state: PrinterState, overrides: DiscoveryConfig): 
   const nameBytes = Buffer.from(nameToUse, 'ascii');
   nameBytes.copy(response, 0, 0, Math.min(nameBytes.length, 128));
 
-  response.writeUInt16BE(overrides.status, 0x80);
-  response.writeUInt16BE(overrides.commandPort, 0x82);
-  response.writeUInt16BE(overrides.legacyPort2, 0x84);
-  response.writeUInt16BE(overrides.httpPort, 0x86);
+  // Legacy payload contract expected by ff-api / FFUI discovery:
+  // 0x00-0x7F: name (128 bytes)
+  // 0x80-0x83: reserved/padding
+  // 0x84: commandPort
+  // 0x86: vid
+  // 0x88: pid
+  // 0x8A: status
+  response.writeUInt16BE(overrides.commandPort, 0x84);
+  response.writeUInt16BE(overrides.vid, 0x86);
+  response.writeUInt16BE(overrides.pid, 0x88);
+  response.writeUInt16BE(overrides.status, 0x8a);
 
   return response;
 }
