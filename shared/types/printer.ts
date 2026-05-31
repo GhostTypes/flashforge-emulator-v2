@@ -212,6 +212,7 @@ export interface PrinterScenario {
   leftFilamentType?: string;
   rightFilamentType?: string;
   errorCode?: string;
+  tvoc?: number;
   materialStation?: {
     currentSlot?: number;
     currentLoadSlot?: number;
@@ -475,6 +476,8 @@ export interface PrinterProfile {
   hasCamera: boolean;
   /** Has chamber temperature control */
   hasChamberTemp: boolean;
+  /** Has built-in filtration system with TVOC sensor */
+  hasFiltration: boolean;
   /** Build volume in mm */
   buildVolume: {
     x: number;
@@ -498,6 +501,7 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     hasMaterialStation: false,
     hasCamera: false,
     hasChamberTemp: false,
+    hasFiltration: false,
     buildVolume: { x: 150, y: 150, z: 150 },
     defaultFirmware: 'v1.4.0',
   },
@@ -510,6 +514,7 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     hasMaterialStation: false,
     hasCamera: false,
     hasChamberTemp: false,
+    hasFiltration: false,
     buildVolume: { x: 220, y: 220, z: 250 },
     defaultFirmware: 'v2.0.0',
   },
@@ -522,6 +527,7 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     hasMaterialStation: false,
     hasCamera: false,
     hasChamberTemp: true,
+    hasFiltration: false,
     buildVolume: { x: 220, y: 220, z: 220 },
     defaultFirmware: 'v3.1.3',
   },
@@ -534,6 +540,7 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     hasMaterialStation: false,
     hasCamera: true,
     hasChamberTemp: true,
+    hasFiltration: true,
     buildVolume: { x: 220, y: 220, z: 220 },
     defaultFirmware: 'v3.1.5',
   },
@@ -546,9 +553,23 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     hasMaterialStation: true,
     hasCamera: false,
     hasChamberTemp: true,
+    hasFiltration: false,
     buildVolume: { x: 220, y: 220, z: 220 },
     defaultFirmware: 'v3.1.3',
   },
+} as const;
+
+/**
+ * Product ID values returned by the HTTP `/detail` endpoint.
+ *
+ * The Android app uses `pid` as the primary model-detection mechanism via
+ * `PrinterModel.fromDetail()`. Legacy TCP-only models (Adventurer 3/4) have
+ * no PID in the Android app and default to `0`.
+ */
+export const PRINTER_PID: Readonly<Partial<Record<PrinterModel, number>>> = {
+  'adventurer-5m': 35,
+  'adventurer-5m-pro': 36,
+  'adventurer-5x': 38,
 } as const;
 
 /**

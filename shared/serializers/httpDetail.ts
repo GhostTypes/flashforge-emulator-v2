@@ -9,7 +9,11 @@
  */
 
 import type { IndepMatlInfo, PrinterState } from '../types/printer';
-import { PRINTER_PROFILES, mapMachineStatusToHttpDetailStatus } from '../types/printer';
+import {
+  PRINTER_PID,
+  PRINTER_PROFILES,
+  mapMachineStatusToHttpDetailStatus,
+} from '../types/printer';
 
 export interface HttpDetailMaterialStationInfo {
   currentLoadSlot: number;
@@ -127,7 +131,7 @@ export function serializeHttpDetail(state: PrinterState): HttpDetailPayload {
     nozzleCnt: state.nozzleCount,
     nozzleModel: state.nozzleModel,
     nozzleStyle: 1,
-    pid: 0,
+    pid: PRINTER_PID[state.model] ?? 0,
     platTargetTemp: state.temperature.bedTarget,
     platTemp: state.temperature.bedCurrent,
     polarRegisterCode: '',

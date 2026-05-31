@@ -14,10 +14,21 @@ import express from 'express';
 import type { FileFilterCallback } from 'multer';
 import multer from 'multer';
 import { serializeHttpDetail } from '../../../shared/serializers/httpDetail';
-import type { GcodeToolData, PrinterFile, PrinterModel } from '../../../shared/types/printer';
-import { canStartNewPrint, isStickyTerminalState } from '../../../shared/types/printer';
+import type {
+  GcodeToolData,
+  PrinterFile,
+  PrinterModel,
+  PrinterScenario,
+  ScenarioPresetId,
+} from '../../../shared/types/printer';
+import {
+  PRINTER_PROFILES,
+  canStartNewPrint,
+  isStickyTerminalState,
+} from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
 import { protocolLogStore } from '../state/ProtocolLogStore';
+import { simulationService } from './SimulationService';
 
 /**
  * Authentication credentials from request
@@ -310,6 +321,8 @@ export class HttpServer extends EventEmitter {
   #model: PrinterModel;
   /** Headless health/readiness metadata */
   #healthState: HealthState;
+  /** Whether the simulation tick has been paused via /__simulate */
+  #simulationPaused = false;
 
   /**
    * Gets the current port
@@ -393,6 +406,33 @@ export class HttpServer extends EventEmitter {
     // GET /__health - Runtime readiness and identity
     this.#app.get('/__health', this.#handleHealth.bind(this));
 
+    // --- Internal control API (unauthenticated, for orchestrator/agent use) ---
+
+    // GET /__state - Full internal emulator state dump
+    this.#app.get('/__state', this.#handleGetState.bind(this));
+
+    // POST /__scenario - Apply a named preset or raw scenario
+    this.#app.post('/__scenario', this.#handleScenario.bind(this));
+
+    // POST /__simulate - Control simulation (pause/resume/restart, speed)
+    this.#app.post('/__simulate', this.#handleSimulate.bind(this));
+
+    // POST /__reset - Wipe state back to initial idle
+    this.#app.post('/__reset', this.#handleReset.bind(this));
+
+    // Legacy (TCP-only) models — Adventurer 3/4 — have no HTTP REST server on
+    // real hardware. We deliberately do NOT register the printer protocol routes
+    // for them, so /detail and friends return Express's default 404. This makes
+    // the client's "HTTP getDetail fails → fall back to TCP ~M115 identify" path
+    // run exactly as it would against real legacy hardware. The internal /__*
+    // control API stays available so orchestrators can still drive the instance.
+    if (this.#isLegacyModel()) {
+      this.#registerNotFoundHandler();
+      return;
+    }
+
+    // --- Printer protocol routes (authenticated) ---
+
     // POST /detail - Get printer details
     this.#app.post('/detail', this.#handleDetail.bind(this));
 
@@ -429,6 +469,33 @@ export class HttpServer extends EventEmitter {
         res.json({ code: ResponseCode.Error, message: 'Error' });
       }
     );
+  }
+
+  /**
+   * Whether the configured model is a legacy (TCP-only) printer that exposes no
+   * HTTP REST API on real hardware (Adventurer 3/4).
+   */
+  #isLegacyModel(): boolean {
+    return PRINTER_PROFILES[this.#model].protocolMode === 'legacy';
+  }
+
+  /**
+   * Registers a catch-all 404 for legacy models so any printer protocol request
+   * (e.g. POST /detail) is rejected the way a TCP-only printer would — there is
+   * no HTTP server answering it. The internal /__* routes are registered before
+   * this handler and remain reachable.
+   */
+  #registerNotFoundHandler(): void {
+    this.#app.use((req: Request, res: Response) => {
+      // Plain-text (non-JSON) body on purpose: real legacy hardware has no HTTP
+      // API at all, so we must not emit the {code,...} envelope a client could
+      // mistake for a valid printer response. The 404 status is the signal that
+      // pushes the client onto its TCP identify/fallback path.
+      res
+        .status(404)
+        .type('text/plain')
+        .send(`No HTTP endpoint: ${req.method} ${req.path} (legacy TCP-only model)`);
+    });
   }
 
   /**
@@ -554,6 +621,159 @@ export class HttpServer extends EventEmitter {
       httpPort: this.#port,
       uptimeMs,
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Internal control API handlers (unauthenticated)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * GET /__state - Full internal emulator state dump.
+   *
+   * Returns the complete PrinterState, config, simulation status, file list,
+   * and available scenario presets. Richer than /detail — intended for
+   * orchestrator/agent consumption.
+   */
+  #handleGetState(_req: Request, res: Response): void {
+    const config = printerStateStore.config;
+    const presets = printerStateStore.getScenarioPresets();
+
+    res.json({
+      ok: true,
+      state: printerStateStore.state,
+      config: {
+        model: config.selectedModel,
+        serialNumber: config.serialNumber,
+        checkCode: config.checkCode,
+        simulationMode: config.simulationMode,
+        simulationSpeed: config.simulationSpeed,
+        tcpPort: config.tcpPort,
+        httpPort: config.httpPort,
+      },
+      simulation: {
+        mode: printerStateStore.simulationMode,
+        speed: printerStateStore.simulationSpeed,
+        active: simulationService.active,
+        paused: this.#simulationPaused,
+      },
+      files: printerStateStore.state.files.map((f) => f.name),
+      presets: presets.map((p) => p.id),
+    });
+  }
+
+  /**
+   * POST /__scenario - Apply a named preset or raw scenario object.
+   *
+   * Accepts either `{ "preset": "printing" }` or
+   * `{ "scenario": { "machineStatus": "idle", ... } }`.
+   * The two fields are mutually exclusive.
+   */
+  #handleScenario(req: Request, res: Response): void {
+    const body = req.body as Record<string, unknown>;
+    const hasPreset = 'preset' in body && body['preset'] !== undefined;
+    const hasScenario = 'scenario' in body && body['scenario'] !== undefined;
+
+    if (hasPreset && hasScenario) {
+      res.status(400).json({
+        ok: false,
+        error: "Must provide 'preset' or 'scenario', not both",
+      });
+      return;
+    }
+
+    if (!hasPreset && !hasScenario) {
+      res.status(400).json({
+        ok: false,
+        error: "Must provide 'preset' or 'scenario'",
+      });
+      return;
+    }
+
+    if (hasPreset) {
+      const presetId = body['preset'] as ScenarioPresetId;
+      const presets = printerStateStore.getScenarioPresets();
+      const found = presets.find((p) => p.id === presetId);
+
+      if (!found) {
+        res.status(400).json({
+          ok: false,
+          error: `Unknown preset: '${presetId}'. Available: ${presets.map((p) => p.id).join(', ')}`,
+        });
+        return;
+      }
+
+      printerStateStore.applyScenarioPreset(presetId);
+      res.json({ ok: true, applied: { preset: presetId } });
+      return;
+    }
+
+    const scenario = body['scenario'] as PrinterScenario;
+    printerStateStore.applyScenario(scenario);
+    res.json({ ok: true, applied: { scenario } });
+  }
+
+  /**
+   * POST /__simulate - Control the simulation service at runtime.
+   *
+   * Accepts optional `{ "action": "pause"|"resume"|"restart", "speed": 1-1000 }`.
+   * Fields can be sent together or individually.
+   */
+  #handleSimulate(req: Request, res: Response): void {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const action = body['action'] as string | undefined;
+    const speed = body['speed'] as number | undefined;
+
+    if (action !== undefined && action !== 'pause' && action !== 'resume' && action !== 'restart') {
+      res.status(400).json({
+        ok: false,
+        error: `Unknown action: '${action}'. Must be 'pause', 'resume', or 'restart'`,
+      });
+      return;
+    }
+
+    if (speed !== undefined) {
+      if (typeof speed !== 'number' || speed < 1 || speed > 1000) {
+        res.status(400).json({
+          ok: false,
+          error: 'speed must be a number between 1 and 1000',
+        });
+        return;
+      }
+      printerStateStore.simulationSpeed = speed;
+    }
+
+    if (action === 'pause') {
+      simulationService.stop();
+      this.#simulationPaused = true;
+    } else if (action === 'resume') {
+      simulationService.start();
+      this.#simulationPaused = false;
+    } else if (action === 'restart') {
+      simulationService.stop();
+      simulationService.start();
+      this.#simulationPaused = false;
+    }
+
+    res.json({
+      ok: true,
+      simulation: {
+        mode: printerStateStore.simulationMode,
+        speed: printerStateStore.simulationSpeed,
+        active: simulationService.active,
+        paused: this.#simulationPaused,
+      },
+    });
+  }
+
+  /**
+   * POST /__reset - Wipe state back to initial idle.
+   *
+   * Calls printerStateStore.reset() which reinitializes all state
+   * to model defaults.
+   */
+  #handleReset(_req: Request, res: Response): void {
+    printerStateStore.reset();
+    res.json({ ok: true, message: 'State reset to initial idle' });
   }
 
   /**

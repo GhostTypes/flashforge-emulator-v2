@@ -8,6 +8,7 @@
  */
 
 import type { PrinterState } from '@shared/types/printer';
+import { PRINTER_PROFILES } from '@shared/types/printer';
 import {
   ArrowRight,
   Box,
@@ -21,6 +22,7 @@ import {
   Printer,
   Thermometer,
   ThermometerSun,
+  Wind,
   XCircle,
 } from 'lucide-react';
 import type { ElementType, FunctionComponent } from 'react';
@@ -209,6 +211,25 @@ export const Dashboard: FunctionComponent<DashboardProps> = ({
             </div>
           </div>
         </div>
+
+        {/* TVOC / Air Quality - Only shown for printers with filtration */}
+        {PRINTER_PROFILES[state.model].hasFiltration && (
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                Air Quality
+              </h3>
+              <Wind className={`h-4 w-4 ${getTvocColorClass(state.tvoc)}`} />
+            </div>
+            <p className={`text-2xl font-semibold ${getTvocColorClass(state.tvoc)}`}>
+              {state.tvoc}
+              <span className="ml-1 text-base text-neutral-500">ppb</span>
+            </p>
+            <p className={`mt-1 text-xs ${getTvocColorClass(state.tvoc)}`}>
+              {getTvocLabel(state.tvoc)}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Print Job Section */}
@@ -356,6 +377,25 @@ function ServerButton({ label, running, onStart, onStop }: ServerButtonProps) {
       )}
     </div>
   );
+}
+
+/**
+ * Get color class for TVOC level
+ * Good: <=100, Moderate: 101-300, Poor: >300
+ */
+function getTvocColorClass(level: number): string {
+  if (level <= 100) return 'text-green-400';
+  if (level <= 300) return 'text-yellow-400';
+  return 'text-red-400';
+}
+
+/**
+ * Get air quality label for TVOC level
+ */
+function getTvocLabel(level: number): string {
+  if (level <= 100) return 'Good';
+  if (level <= 300) return 'Moderate';
+  return 'Poor';
 }
 
 /**

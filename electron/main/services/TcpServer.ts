@@ -129,6 +129,14 @@ export class TcpServer extends EventEmitter {
   #model: PrinterModel;
 
   /**
+   * Returns true when the current model is Adventurer 3 (or A3 variants), which uses
+   * a different TCP wire format than the generic/A4/5M protocol.
+   */
+  #isA3(): boolean {
+    return this.#model === 'adventurer-3';
+  }
+
+  /**
    * Gets the current port
    */
   get port(): number {
@@ -521,6 +529,23 @@ export class TcpServer extends EventEmitter {
     const state = printerStateStore.state;
     const profile = printerStateStore.getProfile();
 
+    if (this.#isA3()) {
+      // A3 firmware (per canonical docs): no "CMD ... Received." prefix and no
+      // trailing "ok". The Machine Type line carries the echo: prefix and the
+      // hardcoded firmware string "FlashForge Adventurer III". Serial uses the
+      // "Serial Number:" key and the MAC is reported with its colons intact.
+      const lines = [
+        'echo: Machine Type: FlashForge Adventurer III',
+        `Machine Name: ${state.machineName}`,
+        `Firmware: ${state.firmwareVersion}`,
+        `Serial Number: ${state.serialNumber}`,
+        `X: ${profile.buildVolume.x} Y: ${profile.buildVolume.y} Z: ${profile.buildVolume.z}`,
+        `Tool Count: ${state.nozzleCount}`,
+        `Mac Address:${state.macAddress}`,
+      ];
+      return `${lines.join('\n')}\n`;
+    }
+
     return new ResponseBuilder()
       .cmdReceived('M115')
       .addLine(`Machine Type: Flashforge ${profile.name}`)
@@ -540,6 +565,12 @@ export class TcpServer extends EventEmitter {
    */
   #handleM105(): string {
     const temp = printerStateStore.state.temperature;
+
+    if (this.#isA3()) {
+      // A3 firmware (per canonical docs): "CMD M105 Received." followed by a data
+      // line that begins with "ok". Single extruder only (T0), integer temps.
+      return `CMD M105 Received.\nok T0:${temp.nozzleCurrent.toFixed(0)}/${temp.nozzleTarget.toFixed(0)} B:${temp.bedCurrent.toFixed(0)}/${temp.bedTarget.toFixed(0)}\n`;
+    }
 
     return new ResponseBuilder()
       .cmdReceived('M105')
@@ -578,6 +609,28 @@ export class TcpServer extends EventEmitter {
     const ledValue = state.led.enabled ? 1 : 0;
     const currentFile = state.printJob.currentFile ?? '';
 
+    if (this.#isA3()) {
+      // A3 firmware uses echo: prefix, IDLE instead of READY, numeric MoveMode,
+      // LEDStatus: on/off, PrintFileName: instead of CurrentFile:, FilamentStatus field
+      // A3 firmware (per canonical docs): echo: prefix on the Endstop line, no
+      // "CMD ... Received." prefix and no trailing "ok". MachineStatus uses IDLE
+      // (not READY), MoveMode is always 0.0, plus FilamentStatus/LEDStatus/
+      // PrintFileName fields.
+      const a3Status = machineStatus === 'READY' ? 'IDLE' : machineStatus;
+      const a3MoveMode = '0.0';
+      const ledStatus = state.led.enabled ? 'on' : 'off';
+
+      const lines = [
+        `echo: Endstop: X-max: ${endstops.xMax} Y-max: ${endstops.yMax} Z-min: ${endstops.zMin}`,
+        `MachineStatus: ${a3Status}`,
+        `MoveMode: ${a3MoveMode}`,
+        'FilamentStatus: ok',
+        `LEDStatus: ${ledStatus}`,
+        `PrintFileName: ${currentFile}`,
+      ];
+      return `${lines.join('\n')}\n`;
+    }
+
     return new ResponseBuilder()
       .cmdReceived('M119')
       .addLine(`Endstop: X-max: ${endstops.xMax} Y-max: ${endstops.yMax} Z-min: ${endstops.zMin}`)
@@ -611,6 +664,15 @@ export class TcpServer extends EventEmitter {
     const job = printerStateStore.state.printJob;
     const progress = Math.floor(job.progress * 100);
 
+    if (this.#isA3()) {
+      // A3 firmware (per canonical docs): "CMD M27 Received." + byte line + "ok",
+      // with no Layer line.
+      return new ResponseBuilder()
+        .cmdReceived('M27')
+        .addLine(`SD printing byte ${progress}/100`)
+        .build();
+    }
+
     return new ResponseBuilder()
       .cmdReceived('M27')
       .addLine(`SD printing byte ${progress}/100`)
@@ -624,6 +686,23 @@ export class TcpServer extends EventEmitter {
    */
   #handleM661(client: TcpClient): void {
     const files = printerStateStore.getFiles();
+
+    if (this.#isA3()) {
+      // A3 firmware (per canonical docs): a single response of
+      // "CMD M661 Received.\ninfo_list.size: <count>\n<file1>\n<file2>..." with no
+      // trailing "ok". An empty file list returns "CMD M661 Error.".
+      const fileNames = files.map((f) => f.name);
+
+      if (fileNames.length === 0) {
+        this.#writeResponse(client, 'CMD M661 Error.\n');
+        return;
+      }
+
+      const lines = ['CMD M661 Received.', `info_list.size: ${fileNames.length}`, ...fileNames];
+      this.#writeResponse(client, `${lines.join('\n')}\n`);
+      return;
+    }
+
     const fileNames = files.map((f) => `/data/${f.name}`).join('::');
 
     // Send ok immediately
@@ -652,7 +731,35 @@ export class TcpServer extends EventEmitter {
     const file = printerStateStore.getFile(fileName);
 
     if (!file) {
-      this.#writeResponse(client, ResponseBuilder.error('File not found'));
+      // A3 reports the missing-file error wrapped in the CMD ack frame (per
+      // canonical docs: "CMD M662 Received.\nError: File not exists").
+      if (this.#isA3()) {
+        this.#writeResponse(client, 'CMD M662 Received.\nError: File not exists\n');
+      } else {
+        this.#writeResponse(client, ResponseBuilder.error('File not found'));
+      }
+      return;
+    }
+
+    // Use extracted thumbnail from file, or fallback to placeholder
+    const pngBase64 =
+      file.thumbnail ||
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const pngBuffer = Buffer.from(pngBase64, 'base64');
+
+    if (this.#isA3()) {
+      // A3 binary thumbnail frame: magic (0xa2 0xa2 0x2a 0x2a) + 4-byte BE length + PNG data.
+      // The "ack header length" line reports the size of the binary payload that follows.
+      const magic = Buffer.from([0xa2, 0xa2, 0x2a, 0x2a]);
+      const length = Buffer.alloc(4);
+      length.writeUInt32BE(pngBuffer.length, 0);
+      const binary = Buffer.concat([magic, length, pngBuffer]);
+
+      this.#writeResponse(client, `CMD M662 Received.\nack header length: ${binary.length}\n`);
+
+      setTimeout(() => {
+        this.#writeResponse(client, binary);
+      }, 500);
       return;
     }
 
@@ -661,11 +768,6 @@ export class TcpServer extends EventEmitter {
 
     // Send binary PNG data after delay
     setTimeout(() => {
-      // Use extracted thumbnail from file, or fallback to placeholder
-      const pngBase64 =
-        file.thumbnail ||
-        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-      const pngBuffer = Buffer.from(pngBase64, 'base64');
       this.#writeResponse(client, pngBuffer);
     }, 500);
   }
@@ -673,8 +775,10 @@ export class TcpServer extends EventEmitter {
   /**
    * G28 - Home axes
    */
-  #handleG28(): string {
+  #handleG28(): string | null {
     printerStateStore.homeAxes('all');
+    // A3: motion commands are fire-and-forget (no response)
+    if (this.#isA3()) return null;
     return new ResponseBuilder().cmdReceived('G28').build();
   }
 
@@ -682,8 +786,9 @@ export class TcpServer extends EventEmitter {
    * G90 - Set absolute positioning
    * Sets the positioning mode to absolute (coordinates are from origin)
    */
-  #handleG90(): string {
+  #handleG90(): string | null {
     printerStateStore.setPositioningMode('absolute');
+    if (this.#isA3()) return null;
     return new ResponseBuilder().cmdReceived('G90').build();
   }
 
@@ -691,8 +796,9 @@ export class TcpServer extends EventEmitter {
    * G91 - Set relative positioning
    * Sets the positioning mode to relative (coordinates are offsets from current position)
    */
-  #handleG91(): string {
+  #handleG91(): string | null {
     printerStateStore.setPositioningMode('relative');
+    if (this.#isA3()) return null;
     return new ResponseBuilder().cmdReceived('G91').build();
   }
 
@@ -701,7 +807,7 @@ export class TcpServer extends EventEmitter {
    * Parses X, Y, Z, E parameters and updates position state
    * Supports both absolute (G90) and relative (G91) positioning modes
    */
-  #handleG1(command: string): string {
+  #handleG1(command: string): string | null {
     const state = printerStateStore.state;
     const isAbsolute = state.position.positioningMode === 'absolute';
 
@@ -740,6 +846,8 @@ export class TcpServer extends EventEmitter {
       printerStateStore.updatePosition(positionUpdate);
     }
 
+    // A3: motion commands are fire-and-forget (no response)
+    if (this.#isA3()) return null;
     return new ResponseBuilder().cmdReceived('G1').build();
   }
 
@@ -747,14 +855,29 @@ export class TcpServer extends EventEmitter {
    * M23 - Start print job
    */
   #handleM23(command: string): string {
-    // Extract file path from command (format: M23 0:{file_path})
-    const match = command.match(/M23\s+0:(.+)/);
-    if (!match?.[1]) {
+    // Extract file path from command.
+    // A4/5M format: M23 0:/user/{file} or M23 0:/data/{file}
+    // A3 format: M23 /data/{file}
+    let fileName: string | null = null;
+
+    // Try 0:/user/ or 0:/data/ prefix first (A4/5M)
+    const modernMatch = command.match(/M23\s+0:(.+)/);
+    if (modernMatch?.[1]) {
+      const filePath = modernMatch[1].trim();
+      fileName = filePath.replace('/data/', '').replace('/user/', '');
+    } else {
+      // Try /data/ prefix (A3) or bare filename
+      const legacyMatch = command.match(/M23\s+(.+)/);
+      if (legacyMatch?.[1]) {
+        const filePath = legacyMatch[1].trim();
+        fileName = filePath.replace('/data/', '').replace('/user/', '');
+      }
+    }
+
+    if (!fileName) {
       return ResponseBuilder.error('Invalid M23 command');
     }
 
-    const filePath = match[1].trim();
-    const fileName = filePath.replace('/data/', '').replace('/user/', '');
     const file = printerStateStore.getFile(fileName);
 
     if (!file) {
@@ -772,6 +895,12 @@ export class TcpServer extends EventEmitter {
 
     if (!printerStateStore.startPrint(fileName, file.printTime)) {
       return ResponseBuilder.error('Printer is busy');
+    }
+
+    if (this.#isA3()) {
+      // A3 firmware (per canonical docs): no "CMD M23 Received." prefix; reports
+      // the normalized "/data/<file>" path, "Done printing file", then "ok".
+      return `File opened: /data/${fileName} Size: ${file.size}\nDone printing file\nok\n`;
     }
 
     return new ResponseBuilder().cmdReceived('M23').build();
@@ -945,7 +1074,22 @@ export class TcpServer extends EventEmitter {
    * M146 - LED control
    */
   #handleM146(command: string): string {
-    // Format: M146 r{red} g{green} b{blue} F{flag}
+    // A3 uses simple format: M146 1 (on) / M146 0 (off)
+    // A4/5M uses RGB format: M146 r{red} g{green} b{blue} F{flag}
+    const simpleMatch = command.match(/M146\s+(\d+)/);
+    if (simpleMatch?.[1] && !command.includes('r')) {
+      // Simple on/off format (A3 style)
+      const value = Number.parseInt(simpleMatch[1], 10);
+      printerStateStore.updateLed(value > 0);
+      if (this.#isA3()) {
+        // A3 firmware (per canonical docs): "ack: " followed by the quoted command
+        // echo. The quoted ack is itself the terminator — there is no separate "ok".
+        return `ack: "M146 ${simpleMatch[1]}"\n`;
+      }
+      return new ResponseBuilder().cmdReceived('M146').build();
+    }
+
+    // RGB format
     const redMatch = command.match(/r(\d+)/);
     const greenMatch = command.match(/g(\d+)/);
     const blueMatch = command.match(/b(\d+)/);

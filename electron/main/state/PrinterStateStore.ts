@@ -1192,6 +1192,9 @@ export class PrinterStateStore extends EventEmitter {
     if (scenario.errorCode !== undefined) {
       this.#state.errorCode = scenario.errorCode;
     }
+    if (scenario.tvoc !== undefined) {
+      this.#state.tvoc = scenario.tvoc;
+    }
 
     if (scenario.materialStation) {
       if (scenario.materialStation.currentSlot !== undefined) {

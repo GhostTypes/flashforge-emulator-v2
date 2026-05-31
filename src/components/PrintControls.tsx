@@ -12,7 +12,7 @@ import type {
   PrinterState,
   ScenarioPreset,
 } from '@shared/types/printer';
-import { canStartNewPrint, isStickyTerminalState } from '@shared/types/printer';
+import { PRINTER_PROFILES, canStartNewPrint, isStickyTerminalState } from '@shared/types/printer';
 import {
   Bot,
   ClipboardPaste,
@@ -80,6 +80,7 @@ interface ScenarioDraft {
   leftFilamentType: string;
   rightFilamentType: string;
   errorCode: string;
+  tvoc: number;
   currentSlot: number;
   currentLoadSlot: number;
   slots: ScenarioDraftSlot[];
@@ -143,6 +144,7 @@ function createDraftFromState(state: PrinterState): ScenarioDraft {
     leftFilamentType: state.leftFilamentType,
     rightFilamentType: state.rightFilamentType,
     errorCode: state.errorCode,
+    tvoc: state.tvoc,
     currentSlot: state.materialStation.currentSlot,
     currentLoadSlot: state.materialStation.currentLoadSlot,
     slots: state.materialStation.slots.map((slot) => ({
@@ -191,6 +193,7 @@ function createDraftFromScenario(scenario: PrinterScenario, fallback: PrinterSta
     leftFilamentType: scenario.leftFilamentType ?? base.leftFilamentType,
     rightFilamentType: scenario.rightFilamentType ?? base.rightFilamentType,
     errorCode: scenario.errorCode ?? base.errorCode,
+    tvoc: scenario.tvoc ?? base.tvoc,
     currentSlot: scenario.materialStation?.currentSlot ?? base.currentSlot,
     currentLoadSlot: scenario.materialStation?.currentLoadSlot ?? base.currentLoadSlot,
     slots:
@@ -242,6 +245,7 @@ function toScenario(draft: ScenarioDraft): PrinterScenario {
     leftFilamentType: draft.leftFilamentType,
     rightFilamentType: draft.rightFilamentType,
     errorCode: draft.errorCode,
+    tvoc: draft.tvoc,
     materialStation: {
       currentSlot: draft.currentSlot,
       currentLoadSlot: draft.currentLoadSlot,
@@ -675,6 +679,15 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
                 setDraft((current) => ({ ...current, chamberTarget: value }))
               }
             />
+            {PRINTER_PROFILES[state.model].hasFiltration && (
+              <NumberField
+                label="TVOC Level"
+                value={draft.tvoc}
+                min={0}
+                max={500}
+                onChange={(value) => setDraft((current) => ({ ...current, tvoc: value }))}
+              />
+            )}
             {state.materialStation.hasMatlStation && (
               <TemperaturePair
                 label="Left Nozzle"
