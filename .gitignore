@@ -1,4 +1,5 @@
 # Electron Vite output
+/dist/
 /dist-electron/
 /out/
 
@@ -25,3 +26,12 @@ Thumbs.db
 # Environment
 .env
 .env.local
+
+# Local AI assistant tooling and scratch state. These are per-developer and include
+# vendored copies of third-party documentation, so they stay out of the repository.
+.claude/
+.pi/
+memory/
+
+# Sibling repositories checked out locally for cross-reference while developing.
+/ai_reference/

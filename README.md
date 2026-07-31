@@ -121,11 +121,10 @@ See [API.md](./API.md) for complete documentation of:
 
 ## Source of Truth
 
-All implementation is based on the API documentation in `ai_reference/flashforge-api-docs/`:
-- `http-api.md` - Modern HTTP API
-- `legacy-api.md` - Legacy TCP API
-- `ad5x-api.md` - AD5X material station
-- `ad5x-workflow.md` - Multi-material printing
+Protocol behaviour is derived from observation of real hardware and is documented in
+[API.md](./API.md), which covers the modern HTTP API, the legacy TCP API, and the AD5X
+material station and multi-material workflow. Treat API.md as the reference; the
+emulator is written to match it.
 
 ## Tech Stack
 
@@ -139,4 +138,16 @@ All implementation is based on the API documentation in `ai_reference/flashforge
 
 ## License
 
-MIT
+[MIT](./LICENSE)
+
+## Disclaimer
+
+This is an independent, unofficial project. It is not affiliated with, authorized by,
+endorsed by, or in any way connected to Zhejiang Flashforge 3D Technology Co., Ltd.
+"FlashForge", "Adventurer", and any related product names are trademarks of their
+respective owners and are used here only to describe which printers this software
+emulates.
+
+The emulator reimplements observed network protocol behaviour for interoperability and
+testing. It contains no FlashForge firmware, source code, or other proprietary
+material.
