@@ -17,7 +17,7 @@ Fully-featured emulator for FlashForge 3D printers with TCP and HTTP protocol su
 | Adventurer 3 / 4 | TCP only | Legacy M/G-code protocol |
 | Adventurer 5M | HTTP + TCP | Single tool head |
 | Adventurer 5M Pro | HTTP + TCP | Camera, LEDs, chamber heater, filtration |
-| AD5X | HTTP + TCP | Dual independent nozzles, 4-slot material station |
+| AD5X | HTTP + TCP | HTTP + TCP| 4-slot material station |
 | Creator 5 | HTTP only | 4-head tool changer, 4-slot material station, 256x256x256 build volume |
 | Creator 5 Pro | HTTP only | As Creator 5, plus chamber heater (80 C max), door sensor, and TVOC sensing; filtration is present but not controllable over the API |
 
