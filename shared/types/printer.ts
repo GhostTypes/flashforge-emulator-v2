@@ -16,7 +16,19 @@ export type PrinterModel =
   | 'adventurer-4'
   | 'adventurer-5m'
   | 'adventurer-5m-pro'
-  | 'adventurer-5x';
+  | 'adventurer-5x'
+  | 'creator-5'
+  | 'creator-5-pro';
+
+/**
+ * Whether the model belongs to the Creator 5 series (Creator 5 / Creator 5 Pro).
+ *
+ * The series shares HTTP-only transport, the 4-head tool changer, and several
+ * firmware quirks (see PrinterProfile fields and the Creator 5 notes in API.md).
+ */
+export function isCreator5Series(model: PrinterModel): boolean {
+  return model === 'creator-5' || model === 'creator-5-pro';
+}
 
 /**
  * Protocol mode for the emulator
@@ -224,6 +236,12 @@ export interface PrinterScenario {
     }>;
   };
   currentFileMetadata?: Partial<PrinterFile>;
+  /** Per-tool nozzle temperatures (Creator 5 series; parallel to the profile toolCount) */
+  toolTemps?: number[];
+  /** Per-tool nozzle target temperatures (Creator 5 series) */
+  toolTargetTemps?: number[];
+  /** Door open state (only meaningful on models with a real door sensor) */
+  doorOpen?: boolean;
 }
 
 /**
@@ -414,6 +432,10 @@ export interface PrinterState {
   nozzleModel: string;
   /** Whether door is open */
   doorOpen: boolean;
+  /** Per-tool nozzle temperatures for multi-head models (Creator 5 series; index 0..toolCount-1) */
+  toolTemps: number[];
+  /** Per-tool nozzle target temperatures (Creator 5 series) */
+  toolTargetTemps: number[];
   /** Auto shutdown setting */
   autoShutdown: 'open' | 'close';
   /** Auto shutdown time in minutes */
@@ -468,16 +490,28 @@ export interface PrinterProfile {
   protocolMode: ProtocolMode;
   /** Whether HTTP API is supported */
   supportsHttp: boolean;
-  /** Whether TCP API is supported */
+  /** Whether TCP API is supported (Creator 5 series real hardware runs HTTP only) */
   supportsTcp: boolean;
-  /** Has material station (IFS) */
+  /** Has material station (IFS on AD5X; 4-slot station on the Creator 5 series) */
   hasMaterialStation: boolean;
+  /** Has independent dual nozzle reported via leftTemp/indepMatlInfo (AD5X only) */
+  hasIndependentDualNozzle: boolean;
   /** Has built-in camera */
   hasCamera: boolean;
-  /** Has chamber temperature control */
+  /** Has chamber temperature control (heater + sensor; base Creator 5 has neither) */
   hasChamberTemp: boolean;
+  /** /detail reports the out-of-band -108 "no sensor" sentinel for chamber temps (base Creator 5) */
+  emitsChamberSentinel?: boolean;
   /** Has built-in filtration system with TVOC sensor */
   hasFiltration: boolean;
+  /** Whether circulateCtl_cmd actuates the fans (5M Pro yes; Creator 5 series firmware ACKs without actuating) */
+  filtrationControllable: boolean;
+  /** Whether doorStatus is backed by a real sensor (Creator 5 Pro) */
+  hasDoorSensor: boolean;
+  /** Number of independently controllable tool heads */
+  toolCount: number;
+  /** Whether /gcodeList includes gcodeListDetail (real Creator 5 firmware returns names only) */
+  gcodeListIncludesDetail: boolean;
   /** Build volume in mm */
   buildVolume: {
     x: number;
@@ -499,9 +533,14 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     supportsHttp: false,
     supportsTcp: true,
     hasMaterialStation: false,
+    hasIndependentDualNozzle: false,
     hasCamera: false,
     hasChamberTemp: false,
     hasFiltration: false,
+    filtrationControllable: true,
+    hasDoorSensor: false,
+    toolCount: 1,
+    gcodeListIncludesDetail: true,
     buildVolume: { x: 150, y: 150, z: 150 },
     defaultFirmware: 'v1.4.0',
   },
@@ -512,9 +551,14 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     supportsHttp: false,
     supportsTcp: true,
     hasMaterialStation: false,
+    hasIndependentDualNozzle: false,
     hasCamera: false,
     hasChamberTemp: false,
     hasFiltration: false,
+    filtrationControllable: true,
+    hasDoorSensor: false,
+    toolCount: 1,
+    gcodeListIncludesDetail: true,
     buildVolume: { x: 220, y: 220, z: 250 },
     defaultFirmware: 'v2.0.0',
   },
@@ -525,9 +569,14 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     supportsHttp: true,
     supportsTcp: true,
     hasMaterialStation: false,
+    hasIndependentDualNozzle: false,
     hasCamera: false,
     hasChamberTemp: true,
     hasFiltration: false,
+    filtrationControllable: true,
+    hasDoorSensor: false,
+    toolCount: 1,
+    gcodeListIncludesDetail: true,
     buildVolume: { x: 220, y: 220, z: 220 },
     defaultFirmware: 'v3.1.3',
   },
@@ -538,9 +587,14 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     supportsHttp: true,
     supportsTcp: true,
     hasMaterialStation: false,
+    hasIndependentDualNozzle: false,
     hasCamera: true,
     hasChamberTemp: true,
     hasFiltration: true,
+    filtrationControllable: true,
+    hasDoorSensor: false,
+    toolCount: 1,
+    gcodeListIncludesDetail: true,
     buildVolume: { x: 220, y: 220, z: 220 },
     defaultFirmware: 'v3.1.5',
   },
@@ -551,11 +605,62 @@ export const PRINTER_PROFILES: Readonly<Record<PrinterModel, PrinterProfile>> = 
     supportsHttp: true,
     supportsTcp: true,
     hasMaterialStation: true,
+    hasIndependentDualNozzle: true,
     hasCamera: false,
     hasChamberTemp: true,
     hasFiltration: false,
+    filtrationControllable: true,
+    hasDoorSensor: false,
+    toolCount: 2,
+    gcodeListIncludesDetail: true,
     buildVolume: { x: 220, y: 220, z: 220 },
     defaultFirmware: 'v3.1.3',
+  },
+  // HTTP-only 4-head tool changer. Real hardware runs no TCP service on 8899;
+  // the material station is present but /detail omits hasMatlStation and the
+  // leftTemp/indepMatlInfo block (those are AD5X IFS fields). The base model
+  // has no chamber sensor, so /detail reports the -108 sentinel and chamber
+  // control commands are acknowledged without effect, matching real firmware.
+  ['creator-5']: {
+    model: 'creator-5',
+    name: 'Creator 5',
+    protocolMode: 'modern',
+    supportsHttp: true,
+    supportsTcp: false,
+    hasMaterialStation: true,
+    hasIndependentDualNozzle: false,
+    hasCamera: true,
+    hasChamberTemp: false,
+    emitsChamberSentinel: true,
+    hasFiltration: false,
+    filtrationControllable: false,
+    hasDoorSensor: false,
+    toolCount: 4,
+    gcodeListIncludesDetail: false,
+    buildVolume: { x: 256, y: 256, z: 256 },
+    defaultFirmware: '1.7.8-1.1.7',
+  },
+  // As base, plus: real chamber heater (max 80 C) with sensor, real door
+  // sensor, and filtration hardware with TVOC reporting. Filtration is NOT
+  // controllable: circulateCtl_cmd is acknowledged but does not actuate, and
+  // /product under-reports the fan control states — both match real firmware.
+  ['creator-5-pro']: {
+    model: 'creator-5-pro',
+    name: 'Creator 5 Pro',
+    protocolMode: 'modern',
+    supportsHttp: true,
+    supportsTcp: false,
+    hasMaterialStation: true,
+    hasIndependentDualNozzle: false,
+    hasCamera: true,
+    hasChamberTemp: true,
+    hasFiltration: true,
+    filtrationControllable: false,
+    hasDoorSensor: true,
+    toolCount: 4,
+    gcodeListIncludesDetail: false,
+    buildVolume: { x: 256, y: 256, z: 256 },
+    defaultFirmware: '1.9.4-1.2.6',
   },
 } as const;
 
@@ -570,6 +675,8 @@ export const PRINTER_PID: Readonly<Partial<Record<PrinterModel, number>>> = {
   'adventurer-5m': 35,
   'adventurer-5m-pro': 36,
   'adventurer-5x': 38,
+  'creator-5': 40,
+  'creator-5-pro': 41,
 } as const;
 
 /**

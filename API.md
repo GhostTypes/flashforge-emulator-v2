@@ -14,10 +14,11 @@ This document describes all TCP and HTTP API endpoints implemented by the FlashF
 
 The emulator supports two protocol modes:
 
-| Mode      | TCP Port | HTTP Port | Description                          |
-|-----------|----------|-----------|--------------------------------------|
-| Legacy    | 8899     | N/A       | TCP-only protocol for Adventurer 3/4 |
-| Modern    | 8899     | 8898      | TCP + HTTP for Adventurer 5M series  |
+| Mode               | TCP Port | HTTP Port | Description                          |
+|--------------------|----------|-----------|--------------------------------------|
+| Legacy             | 8899     | N/A       | TCP-only protocol for Adventurer 3/4 |
+| Modern             | 8899     | 8898      | TCP + HTTP for Adventurer 5M series  |
+| Modern (HTTP-only) | N/A      | 8898      | HTTP-only for Creator 5 series       |
 
 ---
 
@@ -785,6 +786,68 @@ When printing on AD5X, include material mappings:
   ]
 }
 ```
+
+---
+
+## Creator 5 Series (Creator 5 / Creator 5 Pro)
+
+The Creator 5 series speaks the modern HTTP API with several differences from the 5M family. The series is HTTP-only: real firmware runs no TCP service on port 8899, so the emulator binds no TCP server. The `--tcp-port` flag is accepted and advertised (in `/__health` and the discovery command-port field), but nothing listens.
+
+### Identity
+
+| Field | Creator 5 | Creator 5 Pro |
+|---|---|---|
+| Model string | `creator-5` | `creator-5-pro` |
+| pid | 40 (0x0028) | 41 (0x0029) |
+| Default firmware | 1.7.8-1.1.7 | 1.9.4-1.2.6 |
+| Default machine name | Creator 5 Emulator | Creator 5 Pro Emulator |
+| Tool heads | 4 (tool changer) | 4 (tool changer) |
+| Build volume | 256x256x256 | 256x256x256 |
+
+VID is `0x2B71` and `productType` is `0x5A02` -- shared with the 5M family. The `pid` is the only reliable model discriminator.
+
+UDP discovery answers with the standard 276-byte modern packet. The model pid sits at offset `0x88`.
+
+### /detail Differences
+
+- Reports `nozzleCnt` 4, `nozzleTemps[4]`, `nozzleTargetTemps[4]`, `nozzleStyle` 0, and `measure` `256X256X256`. The four heads are a tool changer, not independent dual nozzles.
+- Includes `matlStationInfo` (4 slots on both models) but omits `hasMatlStation` and the AD5X-only `leftTemp`/`indepMatlInfo` fields. Derive station presence from `slotCnt`/`slotInfos`.
+- Creator 5 (base) only: no chamber heater or sensor. `chamberTemp` and `chamberTargetTemp` report `-108` (out-of-band sentinel). `doorStatus` is cosmetic (always `close`). The `tvoc` field is present but reads 0.
+- Creator 5 Pro only: chamber heater (0-80 C) with sensor, real door sensor, and read-only TVOC.
+
+### temperatureCtl_cmd
+
+Tool control goes only through the `nozzles` array:
+
+- Send exactly 4 integers, or the whole block is skipped.
+- `0` = tool off, `-200` = no change, `-100` is ignored and the tool keeps heating (firmware quirk).
+- `rightNozzle`/`leftNozzle` are never read on this series.
+- `platform` scalar: `-200` = no change, `-100` = off, otherwise 0-130 target.
+- `chamber` scalar: same sentinels, range 0-80, Pro only. The base model ACKs silently with no effect.
+
+### Files and Printing
+
+- `/gcodeList` returns bare file names only -- no `gcodeListDetail`. Parse tool data at upload time.
+- `/printGcode` requires both `fileName` and `levelingBeforePrint`. Otherwise it returns `{ "code": -1, "message": "Parameter is error." }`.
+- `/uploadGcode` headers: `serialNumber`, `checkCode`, `fileSize`, `printNow`, `levelingBeforePrint`, `flowCalibration`, `timeLapseVideo`, `useMatlStation`, `gcodeToolCnt`. Booleans are sent as `"true"`/`"false"`.
+- `materialMappings` belong in the `/printGcode` body, not the upload headers. Each entry has five fields: `toolId` (0-3), `slotId` (1-4), `materialName`, `toolMaterialColor`, `slotMaterialColor`. Maximum 4 entries, multi-tool prints only.
+- `GET /getThum` serves the current print thumbnail without credentials. `printFileThumbUrl` points at it.
+- `POST /deleteGcode` does not exist on this series. Unmatched routes return 404.
+
+### /product Flags (Bug-Compatible)
+
+The emulator copies two real-firmware misreports on purpose:
+
+- `chamberTempCtrlState` reads 1 on both models -- an over-report on the heater-less base.
+- `internalFanCtrlState` and `externalFanCtrlState` read 0 on both -- an under-report on the filtration-equipped Pro.
+
+Filtration is not API-controllable. `circulateCtl_cmd` returns success but never actuates the fans, even on the Pro. Gate capabilities by `pid`/model, not by `/product` flags.
+
+### Controls That Behave Normally
+
+- `lightControl_cmd` works on both models.
+- `jobCtl_cmd` pause/continue/cancel works.
+- `msConfig_cmd` metadata updates are accepted.
 
 ---
 

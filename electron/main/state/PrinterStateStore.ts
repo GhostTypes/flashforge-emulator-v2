@@ -26,7 +26,12 @@ import type {
   SimulationMode,
   TemperatureState,
 } from '../../../shared/types/printer';
-import { DEFAULT_CONFIG, PRINTER_PROFILES, canStartNewPrint } from '../../../shared/types/printer';
+import {
+  DEFAULT_CONFIG,
+  PRINTER_PROFILES,
+  canStartNewPrint,
+  isCreator5Series,
+} from '../../../shared/types/printer';
 
 export type StateChangeEvent =
   | 'state-changed'
@@ -70,7 +75,7 @@ function roundToWholeNumber(value: number): number {
 }
 
 function buildMachineName(profile: PrinterProfile): string {
-  return profile.hasMaterialStation ? 'AD5X' : `${profile.name} Emulator`;
+  return profile.model === 'adventurer-5x' ? 'AD5X' : `${profile.name} Emulator`;
 }
 
 function createIdlePrintJob(): PrintJobState {
@@ -194,9 +199,15 @@ function createDefaultState(model: PrinterModel): PrinterState {
     firmwareVersion: profile.defaultFirmware,
     macAddress: '00:11:22:33:44:55',
     ipAddress: '192.168.1.100',
-    nozzleCount: profile.hasMaterialStation ? 2 : 1,
+    nozzleCount: profile.toolCount,
     nozzleModel: '0.4mm',
     doorOpen: false,
+    // Per-tool temps (Creator 5 series). Tool 0 starts at ambient like the
+    // single-nozzle field; unused on models that report legacy scalars only.
+    toolTemps: Array.from({ length: profile.toolCount }, (_, index) =>
+      index === 0 ? AMBIENT_TEMPERATURE : 0
+    ),
+    toolTargetTemps: new Array<number>(profile.toolCount).fill(0),
     autoShutdown: 'close',
     autoShutdownTime: 30,
     cumulativePrintTime: 0,
@@ -253,6 +264,20 @@ function getDiscoveryIdentityDefaultsForModel(model: PrinterModel): {
       return {
         vid: 0x2b71,
         pid: 0x0024,
+        productType: 0x5a02,
+        legacyPort2: 8,
+      };
+    case 'creator-5':
+      return {
+        vid: 0x2b71,
+        pid: 0x0028,
+        productType: 0x5a02,
+        legacyPort2: 8,
+      };
+    case 'creator-5-pro':
+      return {
+        vid: 0x2b71,
+        pid: 0x0029,
         productType: 0x5a02,
         legacyPort2: 8,
       };
@@ -771,6 +796,24 @@ export class PrinterStateStore extends EventEmitter {
     this.emit('state-changed', this.#state);
   }
 
+  /**
+   * Replaces the per-tool nozzle target temperatures (Creator 5 series).
+   *
+   * The caller is responsible for sentinel handling (-200 no-change must be
+   * resolved against current targets before calling); values are stored as-is.
+   */
+  setToolTargetTemps(targets: number[]): void {
+    const toolCount = this.getProfile().toolCount;
+    this.#state.toolTargetTemps = targets
+      .slice(0, toolCount)
+      .map((value) => (Number.isFinite(value) ? value : 0));
+    while (this.#state.toolTargetTemps.length < toolCount) {
+      this.#state.toolTargetTemps.push(0);
+    }
+    this.emit('temperature-changed', this.#state.temperature);
+    this.emit('state-changed', this.#state);
+  }
+
   simulateTemperatures(): void {
     const temp = this.#state.temperature;
     const profile = this.getProfile();
@@ -791,6 +834,21 @@ export class PrinterStateStore extends EventEmitter {
       } else if (temp.leftNozzleCurrent > temp.leftNozzleTarget) {
         temp.leftNozzleCurrent = Math.max(temp.leftNozzleTarget, temp.leftNozzleCurrent - 1);
         changed = true;
+      }
+    }
+
+    // Creator 5 series: converge each of the four tool heads toward its target.
+    if (isCreator5Series(this.#state.model)) {
+      for (let index = 0; index < this.#state.toolTemps.length; index += 1) {
+        const current = this.#state.toolTemps[index] ?? 0;
+        const target = this.#state.toolTargetTemps[index] ?? 0;
+        if (current < target) {
+          this.#state.toolTemps[index] = Math.min(target, current + 2);
+          changed = true;
+        } else if (current > target) {
+          this.#state.toolTemps[index] = Math.max(target, current - 1);
+          changed = true;
+        }
       }
     }
 
@@ -888,6 +946,10 @@ export class PrinterStateStore extends EventEmitter {
     if (profile.hasMaterialStation && this.#state.temperature.leftNozzleTarget <= 0) {
       this.#state.temperature.leftNozzleTarget = defaultTargets.leftNozzle;
     }
+    // Creator 5 series: heat tool 0 (the first active head) for the job.
+    if (isCreator5Series(profile.model) && (this.#state.toolTargetTemps[0] ?? 0) <= 0) {
+      this.#state.toolTargetTemps[0] = defaultTargets.nozzle;
+    }
     if (this.#state.temperature.bedTarget <= 0) {
       this.#state.temperature.bedTarget = defaultTargets.bed;
     }
@@ -940,6 +1002,7 @@ export class PrinterStateStore extends EventEmitter {
     this.#state.temperature.leftNozzleTarget = 0;
     this.#state.temperature.bedTarget = 0;
     this.#state.temperature.chamberTarget = 0;
+    this.#state.toolTargetTemps = this.#state.toolTargetTemps.map(() => 0);
     this.#state.fan.coolingFanSpeed = 0;
     this.#state.fan.coolingLeftFanSpeed = 0;
     this.emit('job-changed', this.#state.printJob);
@@ -955,6 +1018,7 @@ export class PrinterStateStore extends EventEmitter {
     this.#state.temperature.leftNozzleTarget = 0;
     this.#state.temperature.bedTarget = 0;
     this.#state.temperature.chamberTarget = 0;
+    this.#state.toolTargetTemps = this.#state.toolTargetTemps.map(() => 0);
     this.#state.fan.coolingFanSpeed = 0;
     this.#state.fan.coolingLeftFanSpeed = 0;
     this.#state.errorCode = '';
@@ -995,6 +1059,7 @@ export class PrinterStateStore extends EventEmitter {
     this.#state.temperature.leftNozzleTarget = 0;
     this.#state.temperature.bedTarget = 0;
     this.#state.temperature.chamberTarget = 0;
+    this.#state.toolTargetTemps = this.#state.toolTargetTemps.map(() => 0);
 
     if (options?.recordCumulative && !wasCompleted) {
       this.#state.cumulativePrintTime += this.#state.printJob.elapsedTimeSeconds;
@@ -1158,6 +1223,20 @@ export class PrinterStateStore extends EventEmitter {
       };
     }
 
+    if (scenario.toolTemps) {
+      this.#state.toolTemps = scenario.toolTemps
+        .slice(0, this.getProfile().toolCount)
+        .map((value) => (Number.isFinite(value) ? value : 0));
+    }
+    if (scenario.toolTargetTemps) {
+      this.#state.toolTargetTemps = scenario.toolTargetTemps
+        .slice(0, this.getProfile().toolCount)
+        .map((value) => (Number.isFinite(value) ? value : 0));
+    }
+    if (scenario.doorOpen !== undefined) {
+      this.#state.doorOpen = scenario.doorOpen;
+    }
+
     if (scenario.fan) {
       Object.assign(this.#state.fan, scenario.fan);
     }
@@ -1264,6 +1343,9 @@ export class PrinterStateStore extends EventEmitter {
       leftFilamentType: this.#state.leftFilamentType,
       rightFilamentType: this.#state.rightFilamentType,
       errorCode: this.#state.errorCode,
+      doorOpen: this.#state.doorOpen,
+      toolTemps: [...this.#state.toolTemps],
+      toolTargetTemps: [...this.#state.toolTargetTemps],
       materialStation: {
         currentSlot: this.#state.materialStation.currentSlot,
         currentLoadSlot: this.#state.materialStation.currentLoadSlot,

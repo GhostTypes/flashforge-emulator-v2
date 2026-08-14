@@ -12,6 +12,7 @@ import type { IndepMatlInfo, PrinterState } from '../types/printer';
 import {
   PRINTER_PID,
   PRINTER_PROFILES,
+  isCreator5Series,
   mapMachineStatusToHttpDetailStatus,
 } from '../types/printer';
 
@@ -91,22 +92,32 @@ export interface HttpDetailPayload {
   leftTargetTemp?: number;
   matlStationInfo?: HttpDetailMaterialStationInfo;
   indepMatlInfo?: IndepMatlInfo;
+  model?: string;
+  nozzleTemps?: number[];
+  nozzleTargetTemps?: number[];
+  camera?: 0 | 1;
+  lidar?: 0 | 1;
 }
 
 export function serializeHttpDetail(state: PrinterState): HttpDetailPayload {
   const profile = PRINTER_PROFILES[state.model];
+  const creator5 = isCreator5Series(state.model);
   const estimatedTimeSeconds =
     state.printJob.elapsedTimeSeconds + state.printJob.remainingTimeMinutes * 60;
 
   const detail: HttpDetailPayload = {
     autoShutdown: state.autoShutdown,
     autoShutdownTime: state.autoShutdownTime,
-    cameraStreamUrl: profile.hasCamera ? `http://${state.ipAddress}:8080/stream` : '',
+    cameraStreamUrl: profile.hasCamera
+      ? creator5
+        ? `http://${state.ipAddress}:8080/?action=stream`
+        : `http://${state.ipAddress}:8080/stream`
+      : '',
     chamberFanSpeed: state.fan.chamberFanSpeed,
-    chamberTargetTemp: state.temperature.chamberTarget,
-    chamberTemp: state.temperature.chamberCurrent,
+    chamberTargetTemp: profile.emitsChamberSentinel ? -108 : state.temperature.chamberTarget,
+    chamberTemp: profile.emitsChamberSentinel ? -108 : state.temperature.chamberCurrent,
     coolingFanSpeed: state.fan.coolingFanSpeed,
-    coolingFanLeftSpeed: profile.hasMaterialStation ? state.fan.coolingLeftFanSpeed : 0,
+    coolingFanLeftSpeed: profile.hasIndependentDualNozzle ? state.fan.coolingLeftFanSpeed : 0,
     cumulativeFilament: state.cumulativeFilament,
     cumulativePrintTime: state.cumulativePrintTime,
     currentPrintSpeed: state.currentPrintSpeed,
@@ -130,7 +141,7 @@ export function serializeHttpDetail(state: PrinterState): HttpDetailPayload {
     name: state.machineName,
     nozzleCnt: state.nozzleCount,
     nozzleModel: state.nozzleModel,
-    nozzleStyle: 1,
+    nozzleStyle: creator5 ? 0 : 1,
     pid: PRINTER_PID[state.model] ?? 0,
     platTargetTemp: state.temperature.bedTarget,
     platTemp: state.temperature.bedCurrent,
@@ -138,7 +149,9 @@ export function serializeHttpDetail(state: PrinterState): HttpDetailPayload {
     printDuration: state.printJob.elapsedTimeSeconds,
     printFileName: state.printJob.currentFile ?? '',
     printFileThumbUrl: state.printJob.currentFile
-      ? `http://${state.ipAddress}:8898/thumb/${state.printJob.currentFile}`
+      ? creator5
+        ? `http://${state.ipAddress}:8898/getThum`
+        : `http://${state.ipAddress}:8898/thumb/${state.printJob.currentFile}`
       : '',
     printLayer: state.printJob.currentLayer,
     printProgress: state.printJob.progress,
@@ -149,15 +162,48 @@ export function serializeHttpDetail(state: PrinterState): HttpDetailPayload {
     hasRightFilament: state.hasRightFilament,
     remainingDiskSpace: state.remainingDiskSpace,
     rightFilamentType: state.rightFilamentType,
-    rightTargetTemp: state.temperature.nozzleTarget,
-    rightTemp: state.temperature.nozzleCurrent,
+    rightTargetTemp: creator5 ? (state.toolTargetTemps[0] ?? 0) : state.temperature.nozzleTarget,
+    rightTemp: creator5 ? (state.toolTemps[0] ?? 0) : state.temperature.nozzleCurrent,
     status: mapMachineStatusToHttpDetailStatus(state.machineStatus),
     targetPrintLayer: state.printJob.totalLayers,
     tvoc: state.tvoc,
     zAxisCompensation: state.zAxisCompensation,
   };
 
+  // Creator 5 series /detail additions. The 4-head tool changer reports per-tool
+  // temps through nozzleTemps/nozzleTargetTemps (rightTemp above mirrors tool 0
+  // as the legacy alias). `model` is hardcoded in real firmware /detail output.
+  if (creator5) {
+    detail.model = profile.name;
+    detail.nozzleTemps = [...state.toolTemps];
+    detail.nozzleTargetTemps = [...state.toolTargetTemps];
+    detail.camera = profile.hasCamera ? 1 : 0;
+    detail.lidar = 0;
+  }
+
   if (!profile.hasMaterialStation) {
+    return detail;
+  }
+
+  // The material station block is shared by AD5X and the Creator 5 series, but
+  // real Creator 5 firmware omits the AD5X-only extras: no hasMatlStation flag
+  // (derive from slotCnt/slotInfos instead) and no leftTemp/indepMatlInfo IFS
+  // fields.
+  detail.matlStationInfo = {
+    currentLoadSlot: state.materialStation.currentLoadSlot,
+    currentSlot: state.materialStation.currentSlot,
+    slotCnt: state.materialStation.slotCount,
+    stateAction: 0,
+    stateStep: 0,
+    slotInfos: state.materialStation.slots.map((slot) => ({
+      slotId: slot.slotId,
+      hasFilament: slot.hasFilament,
+      materialName: slot.materialName || 'PLA',
+      materialColor: slot.materialColor,
+    })),
+  };
+
+  if (!profile.hasIndependentDualNozzle) {
     return detail;
   }
 
@@ -178,19 +224,6 @@ export function serializeHttpDetail(state: PrinterState): HttpDetailPayload {
     leftFilamentType: state.leftFilamentType,
     leftTemp: state.temperature.leftNozzleCurrent,
     leftTargetTemp: state.temperature.leftNozzleTarget,
-    matlStationInfo: {
-      currentLoadSlot: state.materialStation.currentLoadSlot,
-      currentSlot: state.materialStation.currentSlot,
-      slotCnt: state.materialStation.slotCount,
-      stateAction: 0,
-      stateStep: 0,
-      slotInfos: state.materialStation.slots.map((slot) => ({
-        slotId: slot.slotId,
-        hasFilament: slot.hasFilament,
-        materialName: slot.materialName || 'PLA',
-        materialColor: slot.materialColor,
-      })),
-    },
     indepMatlInfo,
   };
 }

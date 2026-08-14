@@ -160,6 +160,33 @@ test('validateSupervisorInstances rejects cross-instance port collisions', () =>
   );
 });
 
+test('parseHeadlessInstanceArgs accepts the Creator 5 series models', () => {
+  for (const model of ['creator-5', 'creator-5-pro']) {
+    const parsed = parseHeadlessInstanceArgs([
+      '--instance-id',
+      'printer-c5',
+      '--model',
+      model,
+      '--serial',
+      'SN-C5',
+      '--check-code',
+      'CODE-C5',
+      '--machine-name',
+      'Creator 5 E2E',
+      '--tcp-port',
+      '19501',
+      '--http-port',
+      '19502',
+      '--simulation-mode',
+      'auto',
+      '--simulation-speed',
+      '100',
+    ]);
+
+    assert.equal(parsed.model, model);
+  }
+});
+
 test('PrinterStateStore syncs discovery command/http ports with runtime ports', () => {
   printerStateStore.initialize('adventurer-5m-pro');
 

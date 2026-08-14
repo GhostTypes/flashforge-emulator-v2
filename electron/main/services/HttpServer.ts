@@ -24,6 +24,7 @@ import type {
 import {
   PRINTER_PROFILES,
   canStartNewPrint,
+  isCreator5Series,
   isStickyTerminalState,
 } from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
@@ -93,6 +94,14 @@ interface ControlArgs extends Record<string, unknown> {
   chamberTemp?: number;
   zAxisCompensation?: number;
   coolingLeftFan?: number;
+  /** Creator 5 series canonical per-tool targets: exactly 4 ints (0 = off, -200 = no change) */
+  nozzles?: unknown;
+  /** Creator 5 series canonical bed target (-200 = no change, -100 = off) */
+  platform?: number;
+  /** Creator 5 series canonical chamber target (Pro only; -200/-100 sentinels) */
+  chamber?: number;
+  rightNozzle?: number;
+  leftNozzle?: number;
 }
 
 /**
@@ -140,6 +149,16 @@ enum ResponseCode {
   Unauthorized = 3,
   NotFound = 4,
   Busy = 5,
+  /** Creator 5 series firmware-style parameter error */
+  ParameterError = -1,
+}
+
+/** 1x1 transparent PNG used when a file or job has no extracted thumbnail */
+const PLACEHOLDER_THUMBNAIL_PNG =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+function clampTemperature(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 /**
@@ -454,8 +473,19 @@ export class HttpServer extends EventEmitter {
     // POST /uploadGcode - Upload and optionally print (uses multer for file handling)
     this.#app.post('/uploadGcode', upload.single('gcodeFile'), this.#handleUploadGcode.bind(this));
 
-    // POST /deleteGcode - Delete a G-code file
-    this.#app.post('/deleteGcode', this.#handleDeleteGcode.bind(this));
+    // GET /getThum - Current print thumbnail (Creator 5 series only). Real
+    // firmware serves this without credentials (only the LAN-mode gate, which
+    // the emulator always passes) and /detail printFileThumbUrl points at it.
+    if (isCreator5Series(this.#model)) {
+      this.#app.get('/getThum', this.#handleGetThum);
+    }
+
+    // POST /deleteGcode - Delete a G-code file. The Creator 5 series firmware
+    // has no such route (unknown paths return "page not found"), so it is not
+    // registered and falls through to Express's default 404 like real hardware.
+    if (!isCreator5Series(this.#model)) {
+      this.#app.post('/deleteGcode', this.#handleDeleteGcode.bind(this));
+    }
 
     // Error handler
     this.#app.use(
@@ -781,11 +811,16 @@ export class HttpServer extends EventEmitter {
    */
   #handleProduct = this.#withAuth((_req: Request, res: Response): void => {
     const profile = printerStateStore.getProfile();
+    const creator5 = isCreator5Series(this.#model);
 
+    // Real Creator 5 firmware misreports capabilities here: chamberTempCtrlState
+    // reads 1 even on the heater-less base model, and the fan control states read
+    // 0 even on the Pro (which has filtration hardware). Emulated clients must
+    // gate on pid/model, exactly as against real hardware.
     const product = {
-      chamberTempCtrlState: profile.hasChamberTemp ? 1 : 0,
-      externalFanCtrlState: 1,
-      internalFanCtrlState: 1,
+      chamberTempCtrlState: creator5 ? 1 : profile.hasChamberTemp ? 1 : 0,
+      externalFanCtrlState: creator5 ? 0 : 1,
+      internalFanCtrlState: creator5 ? 0 : 1,
       lightCtrlState: 1,
       nozzleTempCtrlState: 1,
       platformTempCtrlState: 1,
@@ -848,6 +883,18 @@ export class HttpServer extends EventEmitter {
       }
 
       case 'circulateCtl_cmd': {
+        if (!printerStateStore.getProfile().filtrationControllable) {
+          // Creator 5 series: firmware acknowledges circulateCtl_cmd with
+          // success but never actuates the fans (the Pro's filtration is not
+          // API-controllable; the base has no filtration hardware). Silent ACK
+          // is deliberate bug-compatibility.
+          this.emit('command-executed', {
+            cmd,
+            args,
+            ignored: 'filtration is not controllable on this model',
+          });
+          break;
+        }
         const internal = args?.internal === 'open';
         const external = args?.external === 'open';
         printerStateStore.updateFan({
@@ -881,6 +928,12 @@ export class HttpServer extends EventEmitter {
       }
 
       case 'temperatureCtl_cmd': {
+        if (isCreator5Series(this.#model)) {
+          this.#handleCreator5TemperatureControl(args);
+          this.emit('command-executed', { cmd, args });
+          break;
+        }
+
         // Handle temperature control commands
         const state = printerStateStore.state;
         const hasNewTargetTemp =
@@ -927,29 +980,102 @@ export class HttpServer extends EventEmitter {
   });
 
   /**
+   * Creator 5 series temperatureCtl_cmd handling (canonical wire format).
+   *
+   * Real firmware drives the four tool heads ONLY through the `nozzles` array:
+   * it must be exactly 4 ints or the whole per-tool block is skipped. Inside
+   * the array 0 = off, -200 = no change, and -100 is ignored (the tool keeps
+   * its target). rightNozzle/leftNozzle are legacy fields this firmware never
+   * reads for tool control. The scalar heaters (platform, chamber) use
+   * -200 = no change and -100 = off. Chamber is capped at 80 C and only the
+   * Pro honors it — on the base model the command is acknowledged without
+   * effect, matching the firmware's silent-ACK behaviour.
+   */
+  #handleCreator5TemperatureControl(args: ControlArgs): void {
+    const TEMP_NO_CHANGE = -200;
+    const TEMP_OFF = -100;
+    const profile = printerStateStore.getProfile();
+    const state = printerStateStore.state;
+    let hasNewTargetTemp = false;
+
+    if (Array.isArray(args?.nozzles) && args.nozzles.length === 4) {
+      const nextTargets = [...state.toolTargetTemps];
+      let toolChanged = false;
+      args.nozzles.forEach((value, index) => {
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+          // -200 = no change; any other negative (notably -100) is IGNORED by
+          // real firmware — the tool keeps its target. Only 0..350 applies,
+          // with 0 meaning off.
+          return;
+        }
+        const clamped = clampTemperature(value, 0, 350);
+        if (nextTargets[index] !== clamped) {
+          toolChanged = true;
+        }
+        nextTargets[index] = clamped;
+        if (clamped > (state.toolTemps[index] ?? 0)) {
+          hasNewTargetTemp = true;
+        }
+      });
+      if (toolChanged) {
+        printerStateStore.setToolTargetTemps(nextTargets);
+      }
+    }
+
+    if (typeof args?.platform === 'number' && args.platform !== TEMP_NO_CHANGE) {
+      const bedTarget = args.platform === TEMP_OFF ? 0 : clampTemperature(args.platform, 0, 130);
+      printerStateStore.updateTemperature({ bedTarget });
+      if (bedTarget > state.temperature.bedCurrent) {
+        hasNewTargetTemp = true;
+      }
+    }
+
+    if (
+      typeof args?.chamber === 'number' &&
+      args.chamber !== TEMP_NO_CHANGE &&
+      profile.hasChamberTemp
+    ) {
+      const chamberTarget = args.chamber === TEMP_OFF ? 0 : clampTemperature(args.chamber, 0, 80);
+      printerStateStore.updateTemperature({ chamberTarget });
+      if (chamberTarget > state.temperature.chamberCurrent) {
+        hasNewTargetTemp = true;
+      }
+    }
+
+    if (hasNewTargetTemp && (state.machineStatus === 'idle' || state.machineStatus === 'ready')) {
+      printerStateStore.setMachineStatus('heating');
+    }
+  }
+
+  /**
    * POST /gcodeList - Get recent G-code files
    */
   #handleGcodeList = this.#withAuth((_req: Request, res: Response): void => {
     const files = printerStateStore.getFiles();
     const fileNames = files.slice(0, 10).map((f) => f.name);
 
-    // Build gcodeListDetail array with actual file metadata
-    const gcodeListDetail: GcodeFileEntry[] = files.slice(0, 10).map((file) => ({
-      gcodeFileName: file.name,
-      gcodeToolCnt: file.gcodeToolCnt,
-      gcodeToolDatas: file.gcodeToolDatas,
-      printingTime: file.printTime,
-      totalFilamentWeight: file.totalFilamentWeight,
-      useMatlStation: file.useMatlStation,
-    }));
-
-    this.emit('response-sent', { path: '/gcodeList', count: fileNames.length });
-    res.json({
+    // Real Creator 5 firmware returns bare file names (no gcodeListDetail),
+    // so clients must parse tool data at upload time. Other models keep the
+    // detailed listing the emulator has always served.
+    const response: ApiResponse = {
       code: ResponseCode.Success,
       message: 'Success',
       gcodeList: fileNames,
-      gcodeListDetail,
-    } satisfies ApiResponse);
+    };
+
+    if (printerStateStore.getProfile().gcodeListIncludesDetail) {
+      response.gcodeListDetail = files.slice(0, 10).map((file) => ({
+        gcodeFileName: file.name,
+        gcodeToolCnt: file.gcodeToolCnt,
+        gcodeToolDatas: file.gcodeToolDatas,
+        printingTime: file.printTime,
+        totalFilamentWeight: file.totalFilamentWeight,
+        useMatlStation: file.useMatlStation,
+      }));
+    }
+
+    this.emit('response-sent', { path: '/gcodeList', count: fileNames.length });
+    res.json(response);
   });
 
   /**
@@ -972,10 +1098,8 @@ export class HttpServer extends EventEmitter {
 
     // Return extracted thumbnail if available, otherwise placeholder
     const thumbnailData = file.thumbnail || '';
-    const placeholderPng =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
     this.emit('response-sent', { path: '/gcodeThumb', fileName });
-    res.json(this.#success(thumbnailData || placeholderPng, 'imageData'));
+    res.json(this.#success(thumbnailData || PLACEHOLDER_THUMBNAIL_PNG, 'imageData'));
   });
 
   /**
@@ -986,7 +1110,20 @@ export class HttpServer extends EventEmitter {
     const fileName = body.fileName;
 
     if (!fileName) {
-      res.json(this.#error(ResponseCode.InvalidParameter, 'Invalid parameter'));
+      const creator5 = isCreator5Series(this.#model);
+      res.json(
+        this.#error(
+          creator5 ? ResponseCode.ParameterError : ResponseCode.InvalidParameter,
+          creator5 ? 'Parameter is error.' : 'Invalid parameter'
+        )
+      );
+      return;
+    }
+
+    // Real Creator 5 firmware rejects /printGcode without the required
+    // levelingBeforePrint boolean ({code: -1, "Parameter is error."}).
+    if (isCreator5Series(this.#model) && typeof body.levelingBeforePrint !== 'boolean') {
+      res.json(this.#error(ResponseCode.ParameterError, 'Parameter is error.'));
       return;
     }
 
@@ -1159,6 +1296,23 @@ export class HttpServer extends EventEmitter {
     this.emit('file-deleted', { fileName });
     res.json(this.#success());
   });
+
+  /**
+   * GET /getThum - Current print thumbnail (Creator 5 series).
+   *
+   * Unauthenticated by design: real firmware gates only LAN mode here.
+   * Serves the current job's extracted thumbnail or a 1x1 placeholder.
+   */
+  #handleGetThum = (_req: Request, res: Response): void => {
+    const state = printerStateStore.state;
+    const currentFile = state.printJob.currentFile
+      ? printerStateStore.getFile(state.printJob.currentFile)
+      : undefined;
+    const base64 = currentFile?.thumbnail || PLACEHOLDER_THUMBNAIL_PNG;
+
+    this.emit('response-sent', { path: '/getThum' });
+    res.type('image/png').send(Buffer.from(base64, 'base64'));
+  };
 
   /**
    * Starts the HTTP server

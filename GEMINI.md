@@ -45,6 +45,8 @@ When simulating behavior or API responses, adhere strictly to these hardware fac
 - **AD5X**: A special multi-color/multi-material 5M series printer with "IFS". Has 4 slots. NO built-in camera, NO OEM LEDs, NO filtration.
 - **Adventurer 5M**: Standard model. NO built-in camera, NO OEM LEDs, NO filtration.
 - **Adventurer 5M Pro**: HAS a built-in camera, OEM LEDs, AND internal circulation/filtration (reporting TVOC levels).
+- **Creator 5**: HTTP-only 4-head tool changer with a 4-slot material station and a 256x256x256 build volume. NO TCP service (the API is HTTP-only). NO chamber heater or sensor (`/detail` reports the -108 sentinel; chamber commands are acknowledged without effect). NO filtration. Door status is cosmetic (always "close"). TVOC field present but 0.
+- **Creator 5 Pro**: As Creator 5, PLUS a real chamber heater (max 80 C) with sensor, a real door sensor, and read-only TVOC. Filtration hardware is present but NOT API-controllable (`circulateCtl_cmd` succeeds without actuating). `/product` over-reports `chamberTempCtrlState` (reads 1 on both models) and under-reports the fan control states (read 0 on both) -- gate capabilities by pid/model, not by `/product` flags.
 
 ### Protocol Nuances
 - **TCP (8899)**: Implements legacy M-commands and G-codes (e.g., `M601`, `M115`, `M105`, `M27`, `G28`). Data such as JSON payloads and thumbnails might be appended after strings like `ok`.

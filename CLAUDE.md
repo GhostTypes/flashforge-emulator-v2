@@ -1,8 +1,9 @@
 # CLAUDE.md -- FlashForge Emulator V2
 
 Guidance for AI assistants working in this repo. The emulator simulates FlashForge Adventurer
-series printers (3, 4, 5M, 5M Pro, AD5X) over HTTP/TCP/UDP so developers can test client apps
-(Android, WebUI, desktop Electron) without real hardware.
+series printers (3, 4, 5M, 5M Pro, AD5X) and Creator 5 series printers (Creator 5, Creator 5
+Pro) over HTTP/TCP/UDP so developers can test client apps (Android, WebUI, desktop Electron)
+without real hardware.
 
 ## PID model detection
 
@@ -15,9 +16,14 @@ via the `PRINTER_PID` constant in `shared/types/printer.ts`:
 | `adventurer-5m` | 35 |
 | `adventurer-5m-pro` | 36 |
 | `adventurer-5x` | 38 |
+| `creator-5` | 40 (0x0028) |
+| `creator-5-pro` | 41 (0x0029) |
 
 Adventurer 3 and 4 are TCP-only legacy models -- the Android app has no PID values for them
 and doesn't use PID-based detection. They fall back to `0`.
+
+The Creator 5 series shares `productType` `0x5A02` with the 5M family. The PID is the only
+reliable discriminator between the two families.
 
 ## Tech stack
 
@@ -61,6 +67,8 @@ npm run headless:instance -- \
 - Prints `EMULATOR_READY` + JSON config on stdout when servers are up.
 - Multi-instance supervisor: `npm run headless:supervisor` with unique enforcement per instance.
 - Config file: `scripts/headless/multi-instance.example.json`.
+- HTTP-only models (Creator 5 series) accept `--tcp-port` and advertise it in `/__health` and
+  the discovery packet, but bind no TCP server. Real firmware runs no TCP service on 8899.
 
 ## Project structure
 
@@ -209,6 +217,8 @@ line terminators (docs say `\r\n`; emulator emits `\n`) and the exact semantic o
 | Adventurer 5M | yes | yes | no | no | yes |
 | Adventurer 5M Pro | yes | yes | yes | no | yes |
 | AD5X | yes | yes | no | yes (4 slots) | yes |
+| Creator 5 | yes | no | yes | yes (4 slots) | no |
+| Creator 5 Pro | yes | no | yes | yes (4 slots) | yes |
 
 Model profiles live in `shared/types/printer.ts` (`PRINTER_PROFILES`).
 
@@ -224,6 +234,24 @@ Model profiles live in `shared/types/printer.ts` (`PRINTER_PROFILES`).
 
 Full material station state in `/detail`: `hasMatlStation`, `matlStationInfo` (4 slots with
 filament/color), `indepMatlInfo`. Print/upload endpoints accept material slot mappings.
+
+### Creator 5 series quirks (bug-compatible)
+
+`creator-5` and `creator-5-pro` are HTTP-only 4-head tool changers with a 4-slot material
+station. They differ from the 5M family in ways that match real firmware -- deliberately:
+
+- **HTTP-only**: real firmware runs no TCP service on 8899. The emulator accepts `--tcp-port`
+  and advertises it, but binds nothing.
+- **Base model chamber sentinel**: `chamberTemp`/`chamberTargetTemp` report `-108` (no chamber
+  sensor). Chamber control args are ACKed silently with no effect.
+- **Filtration is not controllable**: `circulateCtl_cmd` returns success but never actuates
+  the fans, even on the Pro, which has the hardware.
+- **`/gcodeList` omits `gcodeListDetail`**: bare file names only. Clients must parse tool data
+  at upload time. `POST /deleteGcode` does not exist on this series.
+- **`/product` misreports on purpose**: `chamberTempCtrlState` reads `1` on both models
+  (over-reports on the heater-less base). The fan control states read `0` on both
+  (under-reports on the filtration-equipped Pro). Clients must gate capabilities by
+  `pid`/model, not by `/product` flags.
 
 ### Authentication
 

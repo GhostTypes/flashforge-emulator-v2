@@ -4,11 +4,22 @@ Fully-featured emulator for FlashForge 3D printers with TCP and HTTP protocol su
 
 ## Features
 
-- **Multi-Model Support**: Adventurer 3, 4, 5M, 5M Pro, and AD5X
+- **Multi-Model Support**: Adventurer 3, 4, 5M, 5M Pro, AD5X, Creator 5, and Creator 5 Pro
 - **Dual Protocol**: TCP (legacy port 8899) and HTTP (modern port 8898)
 - **Full State Simulation**: Temperatures, positions, print jobs, material station
 - **Interactive UI**: Real-time status monitoring and control
 - **Auto/Manual Simulation**: Choose how print jobs progress
+
+## Supported Models
+
+| Model | Protocols | Capability summary |
+|---|---|---|
+| Adventurer 3 / 4 | TCP only | Legacy M/G-code protocol |
+| Adventurer 5M | HTTP + TCP | Single tool head |
+| Adventurer 5M Pro | HTTP + TCP | Camera, LEDs, chamber heater, filtration |
+| AD5X | HTTP + TCP | Dual independent nozzles, 4-slot material station |
+| Creator 5 | HTTP only | 4-head tool changer, 4-slot material station, 256x256x256 build volume |
+| Creator 5 Pro | HTTP only | As Creator 5, plus chamber heater (80 C max), door sensor, and TVOC sensing; filtration is present but not controllable over the API |
 
 ## Development
 
@@ -118,13 +129,14 @@ See [API.md](./API.md) for complete documentation of:
 - Authentication
 - Error codes
 - AD5X material station support
+- Creator 5 series HTTP-only behavior
 
 ## Source of Truth
 
 Protocol behaviour is derived from observation of real hardware and is documented in
-[API.md](./API.md), which covers the modern HTTP API, the legacy TCP API, and the AD5X
-material station and multi-material workflow. Treat API.md as the reference; the
-emulator is written to match it.
+[API.md](./API.md), which covers the modern HTTP API, the legacy TCP API, the AD5X
+material station and multi-material workflow, and the Creator 5 series. Treat API.md as the
+reference; the emulator is written to match it.
 
 ## Tech Stack
 

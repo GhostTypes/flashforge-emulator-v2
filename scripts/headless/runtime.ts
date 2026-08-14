@@ -8,6 +8,7 @@ import {
 } from '../../electron/main/services/UdpDiscoveryServer';
 import { printerStateStore } from '../../electron/main/state/PrinterStateStore';
 import { getFirstPhysicalInterface } from '../../electron/main/utils/NetworkInterfaces';
+import { PRINTER_PROFILES } from '../../shared/types/printer';
 import type { HeadlessInstanceOptions } from './instance-config';
 
 const STARTUP_TIMEOUT_MS = 10_000;
@@ -160,12 +161,20 @@ export class HeadlessEmulatorRuntime {
         isRunning: () => httpServer.running,
       });
 
-      await waitForStartedEvent({
-        emitter: tcpServer,
-        label: 'TCP server',
-        start: () => tcpServer.start(),
-        isRunning: () => tcpServer.running,
-      });
+      // The Creator 5 series runs no TCP service on real hardware (HTTP only).
+      // The tcpPort is still accepted, advertised in /__health, and echoed in
+      // the discovery packet's command-port field — real firmware hardcodes
+      // 8899 there even though nothing listens — but no server is bound.
+      if (PRINTER_PROFILES[this.#options.model].supportsTcp) {
+        await waitForStartedEvent({
+          emitter: tcpServer,
+          label: 'TCP server',
+          start: () => tcpServer.start(),
+          isRunning: () => tcpServer.running,
+        });
+      } else {
+        destroyTcpServer();
+      }
 
       if (this.#options.discoveryEnabled) {
         await waitForStartedEvent({

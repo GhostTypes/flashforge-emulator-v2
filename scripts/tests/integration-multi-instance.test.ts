@@ -47,7 +47,33 @@ interface GcodeListDetailEntry {
 
 interface GcodeListResponse {
   code: number;
+  gcodeList?: string[];
   gcodeListDetail?: GcodeListDetailEntry[];
+}
+
+interface Creator5DetailPayload {
+  [key: string]: unknown;
+  pid: number;
+  model: string;
+  nozzleCnt: number;
+  nozzleTemps: number[];
+  nozzleTargetTemps: number[];
+  measure: string;
+  chamberTemp: number;
+  chamberTargetTemp: number;
+  platTargetTemp: number;
+  tvoc: number;
+  camera: number;
+  lidar: number;
+  doorStatus: string;
+  internalFanStatus: string;
+  externalFanStatus: string;
+  printFileName: string;
+  printFileThumbUrl: string;
+  matlStationInfo: { slotCnt: number };
+  hasMatlStation?: unknown;
+  leftTemp?: unknown;
+  indepMatlInfo?: unknown;
 }
 
 function getRunnerCommand(): { command: string; prefixArgs: string[] } {
@@ -693,6 +719,422 @@ test(
         2,
         `Expected discovery to report two unique serial+command identities, got: ${Array.from(discoveryIdentities).join(', ')}`
       );
+    } finally {
+      if (supervisor.exitCode === null) {
+        supervisor.kill('SIGTERM');
+      }
+      await waitForSupervisorExit(supervisor);
+      stdoutReader.close();
+      stderrReader.close();
+    }
+  }
+);
+
+test(
+  'creator 5 series emulates HTTP-only transport with per-model capabilities and firmware quirks',
+  { timeout: TEST_TIMEOUT_MS, concurrency: false },
+  async () => {
+    const ports = await Promise.all([getFreePort(), getFreePort(), getFreePort(), getFreePort()]);
+    const [tcpPortC5, httpPortC5, tcpPortC5P, httpPortC5P] = ports;
+
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'ff-emulator-creator5-'));
+    const configPath = path.join(tempDir, 'instances.json');
+
+    const config = {
+      instances: [
+        {
+          instanceId: 'creator5',
+          model: 'creator-5',
+          serial: 'E2E-SN-CREATOR5',
+          checkCode: 'E2E-CODE-C5',
+          machineName: 'E2E Creator 5',
+          tcpPort: tcpPortC5,
+          httpPort: httpPortC5,
+          discoveryEnabled: true,
+          simulationMode: 'manual',
+          simulationSpeed: 100,
+        },
+        {
+          instanceId: 'creator5pro',
+          model: 'creator-5-pro',
+          serial: 'E2E-SN-CREATOR5PRO',
+          checkCode: 'E2E-CODE-C5P',
+          machineName: 'E2E Creator 5 Pro',
+          tcpPort: tcpPortC5P,
+          httpPort: httpPortC5P,
+          discoveryEnabled: true,
+          simulationMode: 'manual',
+          simulationSpeed: 100,
+        },
+      ],
+    };
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+    const { command, prefixArgs } = getRunnerCommand();
+    const supervisorScript = path.resolve(process.cwd(), 'scripts/headless/run-supervisor.ts');
+    const supervisorArgs = [...prefixArgs, supervisorScript, '--config', configPath];
+    const supervisor = spawn(command, supervisorArgs, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const readyByInstance = new Map<string, ReadyPayload>();
+    let expectingReadyJson = false;
+    const stdoutReader = readline.createInterface({ input: supervisor.stdout });
+    stdoutReader.on('line', (line: string) => {
+      if (expectingReadyJson) {
+        expectingReadyJson = false;
+        const payload = JSON.parse(line) as ReadyPayload;
+        readyByInstance.set(payload.instanceId, payload);
+      }
+      if (line.trim() === 'EMULATOR_READY') {
+        expectingReadyJson = true;
+      }
+    });
+
+    const stderrLines: string[] = [];
+    const stderrReader = readline.createInterface({ input: supervisor.stderr });
+    stderrReader.on('line', (line: string) => {
+      stderrLines.push(line);
+    });
+
+    async function fetchDetail(
+      httpPort: number,
+      serial: string,
+      checkCode: string
+    ): Promise<Creator5DetailPayload> {
+      const response = await fetch(`http://127.0.0.1:${httpPort}/detail`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ serialNumber: serial, checkCode }),
+      });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { code: number; detail: Creator5DetailPayload };
+      assert.equal(body.code, 0);
+      return body.detail;
+    }
+
+    async function sendControl(
+      httpPort: number,
+      serial: string,
+      checkCode: string,
+      cmd: string,
+      args: Record<string, unknown>
+    ): Promise<{ code: number; message: string }> {
+      const response = await fetch(`http://127.0.0.1:${httpPort}/control`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          serialNumber: serial,
+          checkCode,
+          payload: { cmd, args },
+        }),
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()) as { code: number; message: string };
+    }
+
+    async function assertTcpRefused(port: number): Promise<void> {
+      await assert.rejects(
+        () =>
+          new Promise<net.Socket>((_resolve, reject) => {
+            const client = net.createConnection({ host: '127.0.0.1', port });
+            client.once('error', reject);
+            client.once('connect', () => {
+              client.destroy();
+              reject(new Error(`TCP port ${port} should be closed (HTTP-only model)`));
+            });
+          }),
+        /ECONNREFUSED|should be closed/
+      );
+    }
+
+    try {
+      const startupDeadline = Date.now() + 20_000;
+      while (readyByInstance.size < 2 && Date.now() < startupDeadline) {
+        if (supervisor.exitCode !== null) {
+          break;
+        }
+        await wait(100);
+      }
+
+      assert.equal(
+        readyByInstance.size,
+        2,
+        `Expected 2 readiness payloads. stderr:\n${stderrLines.join('\n')}`
+      );
+
+      const c5 = readyByInstance.get('creator5');
+      const c5p = readyByInstance.get('creator5pro');
+      assert.ok(c5, 'Missing creator5 readiness payload');
+      assert.ok(c5p, 'Missing creator5pro readiness payload');
+
+      await waitForHealthReady(c5.httpPort, 10_000);
+      await waitForHealthReady(c5p.httpPort, 10_000);
+
+      // HTTP-only transport: no TCP service is bound even though a tcp port is
+      // configured (real Creator 5 firmware runs no TCP 8899 service).
+      await assertTcpRefused(c5.tcpPort);
+      await assertTcpRefused(c5p.tcpPort);
+
+      // --- /detail: base Creator 5 ---
+      const detailC5 = await fetchDetail(c5.httpPort, c5.serial, 'E2E-CODE-C5');
+      assert.equal(detailC5.pid, 40);
+      assert.equal(detailC5.model, 'Creator 5');
+      assert.equal(detailC5.nozzleCnt, 4);
+      assert.deepEqual(detailC5.nozzleTemps, [25, 0, 0, 0]);
+      assert.equal(detailC5.nozzleTargetTemps?.length, 4);
+      assert.equal(detailC5.measure, '256X256X256');
+      // Base model: chamber sensor absent — firmware reports the -108 sentinel.
+      assert.equal(detailC5.chamberTemp, -108);
+      assert.equal(detailC5.chamberTargetTemp, -108);
+      // Material station present but the AD5X-only flag/fields are omitted.
+      assert.equal(detailC5.hasMatlStation, undefined);
+      assert.equal(detailC5.leftTemp, undefined);
+      assert.equal(detailC5.indepMatlInfo, undefined);
+      assert.equal((detailC5.matlStationInfo as { slotCnt: number }).slotCnt, 4);
+      assert.equal(detailC5.camera, 1);
+      assert.equal(detailC5.lidar, 0);
+      assert.equal(detailC5.doorStatus, 'close');
+
+      // --- /detail: Creator 5 Pro ---
+      const detailC5P = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
+      assert.equal(detailC5P.pid, 41);
+      assert.equal(detailC5P.model, 'Creator 5 Pro');
+      // Pro: real chamber sensor values (not the sentinel).
+      assert.notEqual(detailC5P.chamberTemp, -108);
+      assert.equal(typeof detailC5P.tvoc, 'number');
+      assert.equal((detailC5P.matlStationInfo as { slotCnt: number }).slotCnt, 4);
+
+      // --- /product: bug-compatible misreporting on both C5 models ---
+      for (const [port, serial, code] of [
+        [c5.httpPort, c5.serial, 'E2E-CODE-C5'],
+        [c5p.httpPort, c5p.serial, 'E2E-CODE-C5P'],
+      ] as const) {
+        const response = await fetch(`http://127.0.0.1:${port}/product`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ serialNumber: serial, checkCode: code }),
+        });
+        const body = (await response.json()) as {
+          product: Record<string, number>;
+        };
+        // chamberTempCtrlState over-reports (1 even on the heater-less base);
+        // fan control states under-report (0 even on the filtration-equipped Pro).
+        assert.equal(body.product['chamberTempCtrlState'], 1);
+        assert.equal(body.product['internalFanCtrlState'], 0);
+        assert.equal(body.product['externalFanCtrlState'], 0);
+      }
+
+      // --- temperatureCtl_cmd: canonical Creator 5 wire format ---
+      const setTargets = await sendControl(
+        c5p.httpPort,
+        c5p.serial,
+        'E2E-CODE-C5P',
+        'temperatureCtl_cmd',
+        {
+          nozzles: [200, -200, 0, 60],
+          platform: 60,
+          chamber: 45,
+          rightNozzle: 999,
+          leftNozzle: 999,
+        }
+      );
+      assert.equal(setTargets.code, 0);
+
+      let detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
+      assert.deepEqual(
+        detail.nozzleTargetTemps,
+        [200, 0, 0, 60],
+        'nozzles array drives per-tool targets'
+      );
+      assert.equal(detail.platTargetTemp, 60);
+      assert.equal(detail.chamberTargetTemp, 45);
+
+      // -100 inside nozzles[] is ignored (firmware quirk: tool keeps heating).
+      await sendControl(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P', 'temperatureCtl_cmd', {
+        nozzles: [-100, -100, -100, -100],
+      });
+      detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
+      assert.deepEqual(
+        detail.nozzleTargetTemps,
+        [200, 0, 0, 60],
+        '-100 in nozzles[] must be ignored'
+      );
+
+      // Wrong-length nozzles array skips the whole per-tool block.
+      await sendControl(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P', 'temperatureCtl_cmd', {
+        nozzles: [300, 300],
+      });
+      detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
+      assert.deepEqual(
+        detail.nozzleTargetTemps,
+        [200, 0, 0, 60],
+        'wrong-length nozzles[] must be ignored'
+      );
+
+      // Chamber clamps at 80 C.
+      await sendControl(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P', 'temperatureCtl_cmd', {
+        chamber: 120,
+      });
+      detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
+      assert.equal(detail.chamberTargetTemp, 80, 'chamber clamps to 80 C');
+
+      // Base model: chamber control is acknowledged without effect.
+      const baseChamber = await sendControl(
+        c5.httpPort,
+        c5.serial,
+        'E2E-CODE-C5',
+        'temperatureCtl_cmd',
+        {
+          nozzles: [150, -200, -200, -200],
+          chamber: 70,
+        }
+      );
+      assert.equal(baseChamber.code, 0, 'base chamber command is silently acknowledged');
+      detail = await fetchDetail(c5.httpPort, c5.serial, 'E2E-CODE-C5');
+      assert.equal(detail.chamberTargetTemp, -108, 'base chamber target stays at the sentinel');
+      assert.deepEqual(detail.nozzleTargetTemps, [150, 0, 0, 0]);
+
+      // --- circulateCtl_cmd: acknowledged but never actuated on the Pro ---
+      const circulate = await sendControl(
+        c5p.httpPort,
+        c5p.serial,
+        'E2E-CODE-C5P',
+        'circulateCtl_cmd',
+        {
+          internal: 'open',
+          external: 'open',
+        }
+      );
+      assert.equal(circulate.code, 0);
+      detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
+      assert.equal(detail.internalFanStatus, 'close', 'Pro filtration must not actuate');
+      assert.equal(detail.externalFanStatus, 'close', 'Pro filtration must not actuate');
+
+      // --- upload + gcodeList: names only (no gcodeListDetail) ---
+      const formData = new FormData();
+      formData.set('gcodeFile', new Blob([';E2E C5 TEST\nG28\nM84\n']), 'e2e-creator5.3mf');
+      const uploadResponse = await fetch(`http://127.0.0.1:${c5p.httpPort}/uploadGcode`, {
+        method: 'POST',
+        headers: {
+          serialNumber: c5p.serial,
+          checkCode: 'E2E-CODE-C5P',
+          printNow: 'false',
+          levelingBeforePrint: 'true',
+          useMatlStation: 'true',
+          gcodeToolCnt: '2',
+        },
+        body: formData,
+      });
+      assert.equal(((await uploadResponse.json()) as { code: number }).code, 0);
+
+      const gcodeList = await fetchGcodeList({
+        httpPort: c5p.httpPort,
+        serial: c5p.serial,
+        checkCode: 'E2E-CODE-C5P',
+      });
+      assert.ok(gcodeList.gcodeList?.includes('e2e-creator5.3mf'));
+      assert.equal(
+        gcodeList.gcodeListDetail,
+        undefined,
+        'Creator 5 must not return gcodeListDetail'
+      );
+
+      // --- printGcode: required levelingBeforePrint (firmware -1 error) ---
+      const missingLeveling = await fetch(`http://127.0.0.1:${c5p.httpPort}/printGcode`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          serialNumber: c5p.serial,
+          checkCode: 'E2E-CODE-C5P',
+          fileName: 'e2e-creator5.3mf',
+        }),
+      });
+      assert.equal(((await missingLeveling.json()) as { code: number }).code, -1);
+
+      // /__reset to clear the heating status from the temperature tests, then
+      // re-upload (reset wipes files) and start the job for real.
+      const resetResponse = await fetch(`http://127.0.0.1:${c5p.httpPort}/__reset`, {
+        method: 'POST',
+      });
+      assert.equal(((await resetResponse.json()) as { ok: boolean }).ok, true);
+
+      const formDataAfterReset = new FormData();
+      formDataAfterReset.set(
+        'gcodeFile',
+        new Blob([';E2E C5 TEST\nG28\nM84\n']),
+        'e2e-creator5.3mf'
+      );
+      const reupload = await fetch(`http://127.0.0.1:${c5p.httpPort}/uploadGcode`, {
+        method: 'POST',
+        headers: {
+          serialNumber: c5p.serial,
+          checkCode: 'E2E-CODE-C5P',
+          printNow: 'false',
+          levelingBeforePrint: 'true',
+        },
+        body: formDataAfterReset,
+      });
+      assert.equal(((await reupload.json()) as { code: number }).code, 0);
+
+      const printResponse = await fetch(`http://127.0.0.1:${c5p.httpPort}/printGcode`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          serialNumber: c5p.serial,
+          checkCode: 'E2E-CODE-C5P',
+          fileName: 'e2e-creator5.3mf',
+          levelingBeforePrint: true,
+          materialMappings: [
+            {
+              toolId: 0,
+              slotId: 1,
+              materialName: 'PLA',
+              toolMaterialColor: '#4CAAF8',
+              slotMaterialColor: '#4CAAF8',
+            },
+          ],
+        }),
+      });
+      assert.equal(((await printResponse.json()) as { code: number }).code, 0);
+
+      detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
+      assert.equal(detail.printFileName, 'e2e-creator5.3mf');
+      assert.match(String(detail.printFileThumbUrl), /\/getThum$/);
+      assert.deepEqual(detail.nozzleTargetTemps, [220, 0, 0, 0], 'tool 0 seeded for the job');
+
+      // --- GET /getThum: unauthenticated PNG ---
+      const thumbResponse = await fetch(`http://127.0.0.1:${c5p.httpPort}/getThum`);
+      assert.equal(thumbResponse.status, 200);
+      assert.equal(thumbResponse.headers.get('content-type'), 'image/png');
+
+      // --- /deleteGcode: not a route on the Creator 5 series ---
+      const deleteResponse = await fetch(`http://127.0.0.1:${c5p.httpPort}/deleteGcode`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          serialNumber: c5p.serial,
+          checkCode: 'E2E-CODE-C5P',
+          fileName: 'e2e-creator5.3mf',
+        }),
+      });
+      assert.equal(deleteResponse.status, 404);
+
+      // --- discovery: modern 276-byte packet with a Creator 5 series pid ---
+      const discoverySourcePort = await getFreePortExcluding([18007]);
+      const discoveryResponse = await probeDiscoveryReply({
+        sourcePort: discoverySourcePort,
+        targetPort: 48899,
+      });
+      assert.equal(discoveryResponse.bytes, 276);
+      const parsedPid = discoveryResponse.packet.readUInt16BE(0x88);
+      assert.ok(
+        parsedPid === 0x0028 || parsedPid === 0x0029,
+        `expected a Creator 5 series pid, got 0x${parsedPid.toString(16)}`
+      );
+      assert.equal(discoveryResponse.packet.readUInt16BE(0x86), 0x2b71);
     } finally {
       if (supervisor.exitCode === null) {
         supervisor.kill('SIGTERM');

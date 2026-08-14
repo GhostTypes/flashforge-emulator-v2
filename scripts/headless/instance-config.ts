@@ -19,6 +19,8 @@ const MODEL_SET: ReadonlySet<PrinterModel> = new Set([
   'adventurer-5m',
   'adventurer-5m-pro',
   'adventurer-5x',
+  'creator-5',
+  'creator-5-pro',
 ]);
 
 const SIMULATION_MODE_SET: ReadonlySet<SimulationMode> = new Set(['auto', 'manual']);

@@ -23,6 +23,18 @@
       "discoveryEnabled": true,
       "simulationMode": "auto",
       "simulationSpeed": 100
+    },
+    {
+      "instanceId": "gamma",
+      "model": "creator-5-pro",
+      "serial": "E2E-SN-CREATOR5PRO",
+      "checkCode": "E2E-CODE-C5P",
+      "machineName": "E2E Creator 5 Pro",
+      "tcpPort": 29099,
+      "httpPort": 29098,
+      "discoveryEnabled": true,
+      "simulationMode": "auto",
+      "simulationSpeed": 100
     }
   ]
 }
