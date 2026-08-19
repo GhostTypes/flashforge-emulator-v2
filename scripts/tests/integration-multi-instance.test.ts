@@ -1079,6 +1079,75 @@ test(
       });
       assert.equal(((await reupload.json()) as { code: number }).code, 0);
 
+      // --- printGcode: material slot IDs are 1-based on the wire ---
+      // The Creator 5 maps materials at print-start rather than at upload, so this is
+      // where a client's 0-based slot index has to be caught for this family.
+      const c5pReady = c5p;
+      async function startWithMappings(
+        materialMappings: Array<Record<string, unknown>>
+      ): Promise<{ code: number; message: string; detail?: string }> {
+        const response = await fetch(`http://127.0.0.1:${c5pReady.httpPort}/printGcode`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            serialNumber: c5pReady.serial,
+            checkCode: 'E2E-CODE-C5P',
+            fileName: 'e2e-creator5.3mf',
+            levelingBeforePrint: true,
+            materialMappings,
+          }),
+        });
+        return (await response.json()) as { code: number; message: string; detail?: string };
+      }
+
+      const c5SlotZero = await startWithMappings([
+        {
+          toolId: 0,
+          slotId: 0,
+          materialName: 'PLA',
+          toolMaterialColor: '#4CAAF8',
+          slotMaterialColor: '#4CAAF8',
+        },
+      ]);
+      assert.equal(c5SlotZero.code, -1, 'slotId 0 must be rejected');
+      assert.equal(c5SlotZero.message, 'Parameter is error.');
+      assert.match(String(c5SlotZero.detail), /slotId must be 1-4/);
+
+      // The Creator 5 is a 4-head tool changer, so toolId stays 0-based over 0..3.
+      const c5ToolFour = await startWithMappings([
+        {
+          toolId: 4,
+          slotId: 1,
+          materialName: 'PLA',
+          toolMaterialColor: '#4CAAF8',
+          slotMaterialColor: '#4CAAF8',
+        },
+      ]);
+      assert.equal(c5ToolFour.code, -1, 'toolId 4 must be rejected on a 4-tool head');
+
+      const c5DuplicateSlot = await startWithMappings([
+        {
+          toolId: 0,
+          slotId: 2,
+          materialName: 'PLA',
+          toolMaterialColor: '#4CAAF8',
+          slotMaterialColor: '#4CAAF8',
+        },
+        {
+          toolId: 1,
+          slotId: 2,
+          materialName: 'PLA',
+          toolMaterialColor: '#4CAAF8',
+          slotMaterialColor: '#4CAAF8',
+        },
+      ]);
+      assert.equal(c5DuplicateSlot.code, -1, 'duplicate slotId must be rejected');
+      assert.match(String(c5DuplicateSlot.detail), /Duplicate slotId/);
+
+      // A rejected mapping must not have started anything.
+      detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
+      assert.equal(detail.printFileName, '', 'rejected mappings must not start a job');
+
       const printResponse = await fetch(`http://127.0.0.1:${c5p.httpPort}/printGcode`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -1233,6 +1302,194 @@ test(
       assert.equal(parsedVid, 0x2b71);
       assert.equal(parsedPid, 0x001e);
       assert.equal(parsedStatus, 0);
+    } finally {
+      if (supervisor.exitCode === null) {
+        supervisor.kill('SIGTERM');
+      }
+      await waitForSupervisorExit(supervisor);
+      stdoutReader.close();
+    }
+  }
+);
+
+test(
+  'AD5X /uploadGcode rejects off-by-one material slot IDs',
+  { timeout: TEST_TIMEOUT_MS, concurrency: false },
+  async () => {
+    const tcpPort = await getFreePort();
+    const httpPort = await getFreePort();
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), 'ff-emulator-slot-base-'));
+    const configPath = path.join(tempDir, 'instances.json');
+
+    const config = {
+      instances: [
+        {
+          instanceId: 'slot-base-ad5x',
+          model: 'adventurer-5x',
+          serial: 'E2E-SN-SLOTBASE',
+          checkCode: 'E2E-CODE-SLOTBASE',
+          machineName: 'AD5X Slot Base E2E',
+          tcpPort,
+          httpPort,
+          discoveryEnabled: false,
+          simulationMode: 'manual',
+          simulationSpeed: 100,
+        },
+      ],
+    };
+
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+    const { command, prefixArgs } = getRunnerCommand();
+    const supervisorScript = path.resolve(process.cwd(), 'scripts/headless/run-supervisor.ts');
+    const supervisorArgs = [...prefixArgs, supervisorScript, '--config', configPath];
+    const supervisor = spawn(command, supervisorArgs, {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const readyByInstance = new Map<string, ReadyPayload>();
+    let expectingReadyJson = false;
+    const stdoutReader = readline.createInterface({ input: supervisor.stdout });
+    stdoutReader.on('line', (line: string) => {
+      if (expectingReadyJson) {
+        expectingReadyJson = false;
+        const payload = JSON.parse(line) as ReadyPayload;
+        readyByInstance.set(payload.instanceId, payload);
+        return;
+      }
+
+      if (line.trim() === 'EMULATOR_READY') {
+        expectingReadyJson = true;
+      }
+    });
+
+    interface SlotBaseMapping {
+      toolId: number;
+      slotId: number;
+      materialName: string;
+      toolMaterialColor: string;
+      slotMaterialColor: string;
+    }
+
+    async function uploadWith(
+      port: number,
+      serial: string,
+      fileName: string,
+      mappings: SlotBaseMapping[] | null
+    ): Promise<{ code: number; message: string; detail?: string }> {
+      const formData = new FormData();
+      formData.set('gcodeFile', new Blob([';E2E SLOT BASE\nG28\nM84\n']), fileName);
+
+      const headers: Record<string, string> = {
+        serialNumber: serial,
+        checkCode: 'E2E-CODE-SLOTBASE',
+        printNow: 'false',
+        levelingBeforePrint: 'false',
+        useMatlStation: 'true',
+        gcodeToolCnt: String(mappings?.length ?? 2),
+      };
+      if (mappings) {
+        headers['materialMappings'] = Buffer.from(JSON.stringify(mappings), 'utf-8').toString(
+          'base64'
+        );
+      }
+
+      const response = await fetch(`http://127.0.0.1:${port}/uploadGcode`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()) as { code: number; message: string; detail?: string };
+    }
+
+    const mapping = (toolId: number, slotId: number, materialName = 'PLA'): SlotBaseMapping => ({
+      toolId,
+      slotId,
+      materialName,
+      toolMaterialColor: '#4DA3FF',
+      slotMaterialColor: '#4DA3FF',
+    });
+
+    try {
+      const startupDeadline = Date.now() + 20_000;
+      while (readyByInstance.size < 1 && Date.now() < startupDeadline) {
+        if (supervisor.exitCode !== null) {
+          break;
+        }
+        await wait(100);
+      }
+
+      const ready = readyByInstance.get('slot-base-ad5x');
+      assert.ok(ready, 'Expected slot-base-ad5x readiness payload');
+      await waitForHealthReady(ready.httpPort, 10_000);
+
+      // Slots are 1-based on the wire. A client that forgot to convert its 0-based
+      // UI index sends slotId 0, and that has to fail here the way it fails on
+      // hardware — otherwise the emulator hides the bug.
+      const slotZero = await uploadWith(ready.httpPort, ready.serial, 'slot-zero.3mf', [
+        mapping(0, 0),
+        mapping(1, 1),
+      ]);
+      assert.notEqual(slotZero.code, 0, 'slotId 0 must be rejected');
+      assert.match(String(slotZero.detail), /slotId must be 1-4/);
+
+      const slotAbove = await uploadWith(ready.httpPort, ready.serial, 'slot-five.3mf', [
+        mapping(0, 5),
+      ]);
+      assert.notEqual(slotAbove.code, 0, 'slotId above the station slot count must be rejected');
+
+      // Tools stay 0-based: the AD5X has 2, so toolId 2 is out of range.
+      const toolAbove = await uploadWith(ready.httpPort, ready.serial, 'tool-two.3mf', [
+        mapping(2, 1),
+      ]);
+      assert.notEqual(toolAbove.code, 0, 'toolId beyond the tool count must be rejected');
+
+      const duplicateSlot = await uploadWith(ready.httpPort, ready.serial, 'dupe.3mf', [
+        mapping(0, 1),
+        mapping(1, 1),
+      ]);
+      assert.notEqual(duplicateSlot.code, 0, 'duplicate slotId must be rejected');
+      assert.match(String(duplicateSlot.detail), /Duplicate slotId/);
+
+      const valid = await uploadWith(ready.httpPort, ready.serial, 'valid.3mf', [
+        mapping(0, 1),
+        mapping(1, 2, 'PETG'),
+      ]);
+      assert.equal(valid.code, 0, valid.message);
+
+      const listing = await fetchGcodeList({
+        httpPort: ready.httpPort,
+        serial: ready.serial,
+        checkCode: 'E2E-CODE-SLOTBASE',
+      });
+      const validEntry = listing.gcodeListDetail?.find((e) => e.gcodeFileName === 'valid.3mf');
+      assert.ok(validEntry, 'Expected the accepted upload in gcodeListDetail');
+      assert.deepEqual(
+        validEntry.gcodeToolDatas?.map((tool) => tool.slotId),
+        [1, 2],
+        'accepted mappings round-trip as 1-based slot IDs'
+      );
+
+      // With no mappings supplied the emulator synthesizes tool data; on a material
+      // station printer those synthesized slot IDs must be 1-based too.
+      const synthesized = await uploadWith(ready.httpPort, ready.serial, 'nomap.3mf', null);
+      assert.equal(synthesized.code, 0, synthesized.message);
+
+      const listingAfter = await fetchGcodeList({
+        httpPort: ready.httpPort,
+        serial: ready.serial,
+        checkCode: 'E2E-CODE-SLOTBASE',
+      });
+      const synthEntry = listingAfter.gcodeListDetail?.find((e) => e.gcodeFileName === 'nomap.3mf');
+      assert.ok(synthEntry, 'Expected the mapping-less upload in gcodeListDetail');
+      assert.deepEqual(
+        synthEntry.gcodeToolDatas?.map((tool) => tool.slotId),
+        [1, 2],
+        'synthesized tool data is 1-based on a material station printer'
+      );
     } finally {
       if (supervisor.exitCode === null) {
         supervisor.kill('SIGTERM');
