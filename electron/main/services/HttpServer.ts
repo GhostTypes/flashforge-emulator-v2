@@ -212,9 +212,95 @@ function isAD5XMaterialMappingPayload(value: unknown): value is AD5XMaterialMapp
   );
 }
 
+/** Material slot IDs are 1-based on the wire (`slotId` 1..4); tool IDs are 0-based. */
+const MIN_MATERIAL_SLOT_ID = 1;
+const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
+
+/**
+ * Validates a `materialMappings` payload the way real material-station firmware does.
+ *
+ * The important guarantee here is the **slot ID base**: slots are 1-based on the wire
+ * (`slotId` 1..slotCnt) while tools are 0-based (`toolId` 0..toolCount-1). A client with
+ * an off-by-one bug sends `slotId: 0`, and previously the emulator accepted it silently
+ * — so a broken client passed against the emulator and failed against hardware. Both
+ * `/uploadGcode` (AD5X, mappings at upload time) and `/printGcode` (Creator 5, mappings
+ * at print-start) run this check.
+ *
+ * Models with no material station are left alone: what their firmware does with a
+ * stray `materialMappings` payload has never been captured, and guessing a rejection
+ * there would be inventing behavior rather than emulating it.
+ *
+ * @param rawMappings Raw `materialMappings` array from the request.
+ * @param model Model the request was addressed to.
+ * @returns `null` when the payload is acceptable, otherwise the rejection reason.
+ */
+function validateMaterialMappings(
+  rawMappings: readonly unknown[],
+  model: PrinterModel
+): string | null {
+  const profile = PRINTER_PROFILES[model];
+
+  if (!profile.hasMaterialStation) {
+    return null;
+  }
+
+  const slotCount = printerStateStore.state.materialStation.slotCount;
+  if (rawMappings.length > slotCount) {
+    return `Too many materialMappings: ${rawMappings.length} (station has ${slotCount} slots)`;
+  }
+
+  const seenToolIds = new Set<number>();
+  const seenSlotIds = new Set<number>();
+
+  for (let index = 0; index < rawMappings.length; index++) {
+    const mapping = rawMappings[index];
+    if (!isAD5XMaterialMappingPayload(mapping)) {
+      return `materialMappings[${index}] is malformed`;
+    }
+
+    if (
+      !Number.isInteger(mapping.toolId) ||
+      mapping.toolId < 0 ||
+      mapping.toolId > profile.toolCount - 1
+    ) {
+      return `materialMappings[${index}].toolId must be 0-${profile.toolCount - 1}, got ${mapping.toolId}`;
+    }
+
+    if (
+      !Number.isInteger(mapping.slotId) ||
+      mapping.slotId < MIN_MATERIAL_SLOT_ID ||
+      mapping.slotId > slotCount
+    ) {
+      return `materialMappings[${index}].slotId must be ${MIN_MATERIAL_SLOT_ID}-${slotCount} (slots are 1-based), got ${mapping.slotId}`;
+    }
+
+    if (seenToolIds.has(mapping.toolId)) {
+      return `Duplicate toolId ${mapping.toolId} in materialMappings`;
+    }
+    if (seenSlotIds.has(mapping.slotId)) {
+      return `Duplicate slotId ${mapping.slotId} in materialMappings`;
+    }
+    seenToolIds.add(mapping.toolId);
+    seenSlotIds.add(mapping.slotId);
+
+    if (mapping.materialName.trim().length === 0) {
+      return `materialMappings[${index}].materialName is required`;
+    }
+    if (!HEX_COLOR_PATTERN.test(mapping.toolMaterialColor)) {
+      return `materialMappings[${index}].toolMaterialColor must be #RRGGBB, got ${mapping.toolMaterialColor}`;
+    }
+    if (!HEX_COLOR_PATTERN.test(mapping.slotMaterialColor)) {
+      return `materialMappings[${index}].slotMaterialColor must be #RRGGBB, got ${mapping.slotMaterialColor}`;
+    }
+  }
+
+  return null;
+}
+
 function buildGcodeToolDatas(
   rawMappings: readonly unknown[],
-  requestedToolCount: number
+  requestedToolCount: number,
+  hasMaterialStation: boolean
 ): GcodeToolData[] {
   const mappedTools = rawMappings
     .filter((mapping): mapping is AD5XMaterialMappingPayload =>
@@ -236,12 +322,15 @@ function buildGcodeToolDatas(
     return [];
   }
 
+  // No mappings were supplied, so synthesize one entry per tool. Tool IDs are 0-based;
+  // the paired slot ID is 1-based on a material-station printer and 0 ("no slot") on a
+  // direct-feed one.
   return Array.from({ length: requestedToolCount }, (_, index) => ({
     toolId: index,
     materialName: 'PLA',
     materialColor: '#4DA3FF',
     filamentWeight: 0,
-    slotId: 0,
+    slotId: hasMaterialStation ? index + MIN_MATERIAL_SLOT_ID : 0,
   }));
 }
 
@@ -595,6 +684,26 @@ export class HttpServer extends EventEmitter {
    */
   #error(code: ResponseCode, message: string): ApiResponse {
     return { code, message };
+  }
+
+  /**
+   * Creates the rejection response for a bad `materialMappings` payload.
+   *
+   * Real firmware only ever says "Parameter is error." on the Creator 5 series (and
+   * "Invalid parameter" elsewhere), so the code and the terse message match hardware.
+   * The specific reason is appended as a `detail` string, which real firmware does not
+   * send — it exists purely so a developer driving the emulator can see *why* the
+   * mapping was refused instead of guessing.
+   */
+  #materialMappingError(reason: string): ApiResponse {
+    const creator5 = isCreator5Series(this.#model);
+    return {
+      ...this.#error(
+        creator5 ? ResponseCode.ParameterError : ResponseCode.InvalidParameter,
+        creator5 ? 'Parameter is error.' : 'Invalid parameter'
+      ),
+      detail: reason,
+    };
   }
 
   /**
@@ -1127,6 +1236,18 @@ export class HttpServer extends EventEmitter {
       return;
     }
 
+    // The Creator 5 series maps materials here rather than at upload time, so this is
+    // where an off-by-one slot ID has to be caught for that family.
+    const requestedMappings = body.materialMappings ?? [];
+    if (requestedMappings.length > 0) {
+      const mappingError = validateMaterialMappings(requestedMappings, this.#model);
+      if (mappingError) {
+        this.emit('print-rejected', { fileName, reason: mappingError });
+        res.json(this.#materialMappingError(mappingError));
+        return;
+      }
+    }
+
     const file = printerStateStore.getFile(fileName);
     if (!file) {
       res.json(this.#error(ResponseCode.NotFound, 'Not found'));
@@ -1149,7 +1270,7 @@ export class HttpServer extends EventEmitter {
       flowCalibration: body.flowCalibration ?? false,
       useMatlStation: body.useMatlStation ?? false,
       gcodeToolCnt: body.gcodeToolCnt ?? 0,
-      materialMappings: body.materialMappings ?? [],
+      materialMappings: requestedMappings,
     };
 
     if (!printerStateStore.startPrint(fileName, file.printTime)) {
@@ -1199,11 +1320,22 @@ export class HttpServer extends EventEmitter {
       }
     }
 
+    // The AD5X maps materials at upload time, so the slot IDs land here for that family.
+    if (materialMappings.length > 0) {
+      const mappingError = validateMaterialMappings(materialMappings, this.#model);
+      if (mappingError) {
+        this.emit('upload-failed', { reason: mappingError });
+        res.json(this.#materialMappingError(mappingError));
+        return;
+      }
+    }
+
     // Create printer file entry
     const printTime = estimatePrintTime(fileSize);
     const is3mf = fileName.toLowerCase().endsWith('.3mf');
 
-    const gcodeToolDatas = buildGcodeToolDatas(materialMappings, gcodeToolCnt);
+    const hasMaterialStation = PRINTER_PROFILES[this.#model].hasMaterialStation;
+    const gcodeToolDatas = buildGcodeToolDatas(materialMappings, gcodeToolCnt, hasMaterialStation);
     const resolvedToolCount = gcodeToolDatas.length > 0 ? gcodeToolDatas.length : gcodeToolCnt;
     const resolvedUseMaterialStation = useMatlStation || resolvedToolCount > 0;
 
