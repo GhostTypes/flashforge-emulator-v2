@@ -773,19 +773,48 @@ For AD5X models, the `/detail` response includes additional fields:
 
 ### Material Mapping
 
-When printing on AD5X, include material mappings:
+The AD5X maps materials at **upload** time: `materialMappings` travels as a base64-encoded
+JSON array in the `materialMappings` request header of `/uploadGcode` (the Creator 5 series
+maps at print-start instead -- see below). Each entry carries five fields:
 
 ```json
-{
-  "materialMappings": [
-    {
-      "toolId": 0,
-      "slotId": 1,
-      "materialType": "PLA"
-    }
-  ]
-}
+[
+  {
+    "toolId": 0,
+    "slotId": 1,
+    "materialName": "PLA",
+    "toolMaterialColor": "#4DA3FF",
+    "slotMaterialColor": "#4DA3FF"
+  }
+]
 ```
+
+### Slot and Tool ID Bases
+
+**Slots are 1-based (`slotId` 1-4); tools are 0-based (`toolId` 0..toolCount-1).** The same
+bases apply to the `slotInfos` in `/detail` and to the `gcodeToolDatas` in `/gcodeList`. A
+`slotId` of `0` in `gcodeToolDatas` means "no slot" and only appears on direct-feed printers
+that have no material station.
+
+The emulator validates every `materialMappings` payload rather than accepting it blindly, so
+a client that forgot to convert a 0-based UI index fails here the way it fails on hardware.
+Rejected cases:
+
+| Case | Reason |
+|---|---|
+| `slotId` below 1 or above the station slot count | Slots are 1-based |
+| `toolId` below 0 or above `toolCount - 1` | Tools are 0-based |
+| Duplicate `toolId` or duplicate `slotId` | One tool per slot |
+| More entries than the station has slots | Station capacity |
+| Empty `materialName`, or a colour that is not `#RRGGBB` | Malformed entry |
+
+Rejections answer `{ "code": 2, "message": "Invalid parameter" }` (`{ "code": -1, "message":
+"Parameter is error." }` on the Creator 5 series, matching that firmware). Both carry an extra
+`detail` string naming the offending field -- an emulator-only convenience that real firmware
+does not send.
+
+Printers with no material station are left alone: what their firmware does with a stray
+`materialMappings` payload has never been captured, so the emulator does not invent a rejection.
 
 ---
 
@@ -830,7 +859,7 @@ Tool control goes only through the `nozzles` array:
 - `/gcodeList` returns bare file names only -- no `gcodeListDetail`. Parse tool data at upload time.
 - `/printGcode` requires both `fileName` and `levelingBeforePrint`. Otherwise it returns `{ "code": -1, "message": "Parameter is error." }`.
 - `/uploadGcode` headers: `serialNumber`, `checkCode`, `fileSize`, `printNow`, `levelingBeforePrint`, `flowCalibration`, `timeLapseVideo`, `useMatlStation`, `gcodeToolCnt`. Booleans are sent as `"true"`/`"false"`.
-- `materialMappings` belong in the `/printGcode` body, not the upload headers. Each entry has five fields: `toolId` (0-3), `slotId` (1-4), `materialName`, `toolMaterialColor`, `slotMaterialColor`. Maximum 4 entries, multi-tool prints only.
+- `materialMappings` belong in the `/printGcode` body, not the upload headers. Each entry has five fields: `toolId` (0-3), `slotId` (1-4), `materialName`, `toolMaterialColor`, `slotMaterialColor`. Maximum 4 entries, multi-tool prints only. The emulator validates them (see "Slot and Tool ID Bases" above) and rejects a bad payload with `{ "code": -1, "message": "Parameter is error." }` without starting the job.
 - `GET /getThum` serves the current print thumbnail without credentials. `printFileThumbUrl` points at it.
 - `POST /deleteGcode` does not exist on this series. Unmatched routes return 404.
 

@@ -235,6 +235,14 @@ Model profiles live in `shared/types/printer.ts` (`PRINTER_PROFILES`).
 Full material station state in `/detail`: `hasMatlStation`, `matlStationInfo` (4 slots with
 filament/color), `indepMatlInfo`. Print/upload endpoints accept material slot mappings.
 
+**Slot IDs are 1-based (`slotId` 1-4); tool IDs are 0-based.** `materialMappings` payloads are
+validated against those bases -- on `/uploadGcode` for the AD5X (which maps at upload) and on
+`/printGcode` for the Creator 5 series (which maps at print-start). A `slotId` of 0 is rejected
+so a client with an off-by-one index fails here exactly as it does on hardware, instead of
+passing against the emulator. See "Slot and Tool ID Bases" in `API.md` for the full rule set.
+Models with no material station are deliberately not validated -- their firmware behavior with
+a stray mapping payload has never been captured.
+
 ### Creator 5 series quirks (bug-compatible)
 
 `creator-5` and `creator-5-pro` are HTTP-only 4-head tool changers with a 4-slot material
@@ -261,8 +269,9 @@ station. They differ from the 5M family in ways that match real firmware -- deli
 
 ### Tests
 
-- **6 unit tests** (`scripts/tests/unit-headless.test.ts`)
-- **2 integration tests** (`scripts/tests/integration-multi-instance.test.ts`)
+- **8 unit tests** (`scripts/tests/unit-headless.test.ts`)
+- **4 integration tests** (`scripts/tests/integration-multi-instance.test.ts`) -- multi-instance
+  supervisor, Creator 5 series quirks, legacy A4 discovery, AD5X material slot-ID validation
 - **1 QA smoke test** (`scripts/qa-regression-smoke.ts`) -- 50+ assertions covering HTTP/TCP/UDP
 
 ## Conventions
