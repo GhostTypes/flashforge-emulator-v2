@@ -24,7 +24,7 @@ export type PrinterModel =
  * Whether the model belongs to the Creator 5 series (Creator 5 / Creator 5 Pro).
  *
  * The series shares HTTP-only transport, the 4-head tool changer, and several
- * firmware quirks (see PrinterProfile fields and the Creator 5 notes in API.md).
+ * firmware quirks (see PrinterProfile fields).
  */
 export function isCreator5Series(model: PrinterModel): boolean {
   return model === 'creator-5' || model === 'creator-5-pro';

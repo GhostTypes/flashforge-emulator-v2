@@ -72,5 +72,5 @@
     "shared/**/*.ts",
     "scripts/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist", "dist-electron", "release", "ai_reference", ".claude"]
+  "exclude": ["node_modules", "dist", "dist-electron", "release"]
 }

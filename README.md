@@ -113,31 +113,8 @@ Run `npm run smoke:qa` to validate sticky terminal state blocking, live `/detail
 │   ├── main/         # Main process (server logic)
 │   └── preload/      # Preload scripts (IPC bridge)
 ├── src/              # React renderer (UI)
-├── shared/           # Shared TypeScript types
-├── ai_reference/     # Reference documentation (read-only)
-├── .claude/          # Claude Code configuration
-├── API.md            # Complete API reference (TCP + HTTP)
-├── PRD.md            # Product requirements document
-└── TIMELOG.md        # Development time log
+└── shared/           # Shared TypeScript types
 ```
-
-## API Documentation
-
-See [API.md](./API.md) for complete documentation of:
-- TCP Protocol (Port 8899) - All G/M-code commands
-- HTTP API (Port 8898) - All JSON endpoints
-- Authentication
-- Error codes
-- AD5X material station support
-- Creator 5 series HTTP-only behavior
-
-## Source of Truth
-
-Protocol behaviour is derived from observation of real hardware and is documented in
-[API.md](./API.md), which covers the modern HTTP API, the legacy TCP API, the AD5X
-material station and multi-material workflow, and the Creator 5 series. Treat API.md as the
-reference; the emulator is written to match it.
-
 ## Tech Stack
 
 - **Electron** - Desktop application framework

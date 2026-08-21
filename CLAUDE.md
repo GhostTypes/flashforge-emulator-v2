@@ -94,13 +94,10 @@ flashforge-emulator-v2/
 ├── shared/
 │   ├── types/printer.ts   # All types, PrinterModel union, PRINTER_PROFILES, EmulatorConfig
 │   └── serializers/httpDetail.ts  # Single source of truth for /detail payload
-├── scripts/
-│   ├── headless/          # Headless runtime + supervisor
-│   ├── tests/             # Unit + integration tests
-│   └── qa-regression-smoke.ts
-├── ai_reference/          # Reference implementations -- READ ONLY, do not modify
-├── API.md                 # Emulator API documentation
-└── PRD.md                 # Product requirements
+└── scripts/
+    ├── headless/          # Headless runtime + supervisor
+    ├── tests/             # Unit + integration tests
+    └── qa-regression-smoke.ts
 ```
 
 ## What's implemented
@@ -183,7 +180,7 @@ A3 (`#isA3()` -> `model === 'adventurer-3'`) responses differ from modern (5M/5M
 formats and are aligned **byte-for-byte to the canonical docs**
 (`flashforge-api-docs/endpoints/networkserver_commands_adventurer3.yaml`, FW v1.3.7). The
 prior emulator formats were wrong in several places; the canonical docs always win over
-emulator/app agreement (see `memory/trust-canonical-api-docs.md`). Authoritative A3 frames
+emulator/app agreement. Authoritative A3 frames
 (`\n`-separated; no `~` in responses):
 
 | Cmd | A3 response | Notes vs modern |
@@ -239,7 +236,7 @@ filament/color), `indepMatlInfo`. Print/upload endpoints accept material slot ma
 validated against those bases -- on `/uploadGcode` for the AD5X (which maps at upload) and on
 `/printGcode` for the Creator 5 series (which maps at print-start). A `slotId` of 0 is rejected
 so a client with an off-by-one index fails here exactly as it does on hardware, instead of
-passing against the emulator. See "Slot and Tool ID Bases" in `API.md` for the full rule set.
+passing against the emulator.
 Models with no material station are deliberately not validated -- their firmware behavior with
 a stray mapping payload has never been captured.
 
@@ -287,9 +284,6 @@ station. They differ from the 5M family in ways that match real firmware -- deli
   service-specific events.
 - **TypeScript strict mode**, zero errors. Biome for linting and formatting (not ESLint/Prettier).
   Run `npm run lint:fix` before committing.
-- **`ai_reference/` is read-only.** Contains production reference implementations
-  (`ff-5mp-api-ts`). Consult before guessing API layouts or endpoint behavior. Never modify.
-- **JSDoc on all public APIs.** No `any` types. No TODO-stub placeholders.
 
 ## Out of scope (by design)
 
@@ -321,9 +315,10 @@ request.**
 
 When in doubt about protocol behavior, check these in order:
 
-1. **`ai_reference/`** in this repo -- local copy of the TS reference library.
-2. **Canonical API docs**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\flashforge-api-docs\docs-wiki\`
-3. **TypeScript API library**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\ff-5mp-api-ts`
-4. **Android app**: `C:\Users\coper\Documents\Prototyping\flashforgeui-app` -- primary consumer
-5. **Desktop Electron app**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\FlashForgeUI-Electron`
-6. **WebUI**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\FlashForgeWebUI`
+1. **Canonical API docs**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\flashforge-api-docs\docs-wiki\`
+2. **TypeScript API library**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\ff-5mp-api-ts`
+3. **Python API library**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\ff-5mp-api-py`
+4. **Kotlin API library**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\ff-5mp-api-kt`
+5. **Android app**: `C:\Users\coper\Documents\Prototyping\flashforgeui-app` -- primary consumer
+6. **Desktop Electron app**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\FlashForgeUI-Electron`
+7. **WebUI**: `C:\Users\coper\Documents\GitHub\1flashforge_printers\FlashForgeWebUI`

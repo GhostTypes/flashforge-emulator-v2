@@ -12,8 +12,6 @@
       "dist/**",
       "dist-electron/**",
       "release/**",
-      "ai_reference/**",
-      ".claude/**",
       "coverage/**",
       "out/**"
     ]
