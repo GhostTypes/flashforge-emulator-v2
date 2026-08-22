@@ -30,3 +30,6 @@ Thumbs.db
 # Local AI assistant tooling and scratch state. These are per-developer and include
 # vendored copies of third-party documentation, so they stay out of the repository.
 .pi/
+
+# Headless instance registry (runtime bookkeeping for kill:all)
+.emulator/

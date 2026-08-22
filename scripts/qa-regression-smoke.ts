@@ -135,6 +135,30 @@ async function requestPrintOverHttp(label: string): Promise<ApiResponse> {
   return response;
 }
 
+async function uploadGcodeWithPrintNow(
+  label: string,
+  fileName: string,
+  printNow: string
+): Promise<ApiResponse> {
+  const formData = new FormData();
+  formData.set('gcodeFile', new Blob(['; qa smoke upload\nG28\nM84\n']), fileName);
+
+  const response = await fetch(`http://127.0.0.1:${HTTP_PORT}/uploadGcode`, {
+    method: 'POST',
+    headers: {
+      serialNumber: printerStateStore.state.serialNumber,
+      checkCode: printerStateStore.state.checkCode,
+      printNow,
+      levelingBeforePrint: '0',
+    },
+    body: formData,
+  });
+
+  assert.strictEqual(response.status, 200, `${label}: POST /uploadGcode should return HTTP 200`);
+  record(`${label}: POST /uploadGcode responded`);
+  return (await response.json()) as ApiResponse;
+}
+
 async function startHttpServer(): Promise<void> {
   const server = getHttpServer(HTTP_PORT, MODEL);
   if (server.running) {
@@ -502,6 +526,122 @@ async function run(): Promise<void> {
   const restarted = await requestPrintOverHttp('restart after clear');
   expectEqual(restarted.code, 0, 'HTTP /printGcode succeeds after clear-to-ready');
 
+  // --- Jump-to-percent: derived fields and explicit time units ---
+  expectEqual(
+    printerStateStore.jumpPrintProgress(40),
+    true,
+    'jumpPrintProgress applies to an active job'
+  );
+  const jumpDetail = await assertDetailMatchesState('jump 40%');
+  expectEqual(jumpDetail.printProgress, 0.4, 'jump: printProgress is the target fraction');
+  expectEqual(
+    jumpDetail.printDuration,
+    360,
+    'jump: printDuration stays in seconds (40% of the 900s job)'
+  );
+  expectEqual(jumpDetail.printEta, '00:09', 'jump: printEta is the firmware HH:MM string');
+  expectEqual(jumpDetail.printLayer, 96, 'jump: layer derived from totalLayers');
+  expectEqual(jumpDetail.status, 'heating', 'jump: machine status is left untouched');
+
+  expectEqual(
+    printerStateStore.jumpPrintProgress(100),
+    true,
+    'jumpPrintProgress(100) completes the job through the auto-completion path'
+  );
+  const jumpCompletedDetail = await assertDetailMatchesState('jump 100%');
+  expectEqual(jumpCompletedDetail.status, 'completed', 'jump to 100% transitions to completed');
+  expectEqual(jumpCompletedDetail.printProgress, 1, 'jump to 100% sets progress to 1');
+  expectEqual(jumpCompletedDetail.printEta, '00:00', 'jump to 100% zeroes the ETA');
+  expectEqual(
+    printerStateStore.jumpPrintProgress(30),
+    false,
+    'jump is refused while completed is sticky'
+  );
+  const stillCompletedAfterJump = await assertDetailMatchesState(
+    'completed stays after refused jump'
+  );
+  expectEqual(
+    stillCompletedAfterJump.status,
+    'completed',
+    'a refused jump leaves the completed state intact'
+  );
+
+  await clearToReady('jump lifecycle');
+  const readyAfterJump = await assertDetailMatchesState('jump cleared');
+  expectEqual(readyAfterJump.status, 'ready', 'Clear-to-ready returns the jumped job to ready');
+  // --- GET /thumb/:filename serves the stored thumbnail bytes ---
+  const THUMB_FILE = 'qa-smoke-thumb.gcode';
+  const THUMB_FIXTURE_BASE64 = 'dGh1bWItYnl0ZXMtZml4dHVyZQ==';
+  printerStateStore.addFile({
+    ...buildTestFile(),
+    name: THUMB_FILE,
+    path: `/data/${THUMB_FILE}`,
+    thumbnail: THUMB_FIXTURE_BASE64,
+  });
+
+  const thumbResponse = await fetch(`http://127.0.0.1:${HTTP_PORT}/thumb/${THUMB_FILE}`);
+  expectEqual(thumbResponse.status, 200, 'GET /thumb/:filename serves 200 for a known file');
+  expectEqual(
+    thumbResponse.headers.get('content-type'),
+    'image/png',
+    'GET /thumb/:filename serves image/png'
+  );
+  expectDeepEqual(
+    Buffer.from(await thumbResponse.arrayBuffer()),
+    Buffer.from(THUMB_FIXTURE_BASE64, 'base64'),
+    'GET /thumb/:filename serves the exact stored thumbnail bytes'
+  );
+
+  const missingThumbResponse = await fetch(`http://127.0.0.1:${HTTP_PORT}/thumb/missing.gcode`);
+  expectEqual(
+    missingThumbResponse.status,
+    404,
+    'GET /thumb/:filename returns 404 for unknown filenames'
+  );
+
+  const placeholderThumbResponse = await fetch(`http://127.0.0.1:${HTTP_PORT}/thumb/${TEST_FILE}`);
+  expectEqual(
+    placeholderThumbResponse.status,
+    200,
+    'GET /thumb/:filename serves the placeholder when no thumbnail was stored'
+  );
+  expectEqual(
+    placeholderThumbResponse.headers.get('content-type'),
+    'image/png',
+    'placeholder thumb response is image/png'
+  );
+
+  // --- uploadGcode boolean headers: firmware "1"/"0" and legacy "true" ---
+  const uploadZero = await uploadGcodeWithPrintNow(
+    'upload printNow 0',
+    'header-boolean.gcode',
+    '0'
+  );
+  expectEqual(uploadZero.code, 0, 'uploadGcode accepts firmware-style printNow "0"');
+  expectEqual(
+    (await fetchDetail('after printNow 0')).printFileName,
+    '',
+    'printNow "0" must not start a job'
+  );
+
+  const uploadOne = await uploadGcodeWithPrintNow('upload printNow 1', 'header-boolean.gcode', '1');
+  expectEqual(uploadOne.code, 0, 'uploadGcode accepts firmware-style printNow "1"');
+  expectEqual(
+    (await fetchDetail('after printNow 1')).printFileName,
+    'header-boolean.gcode',
+    'printNow "1" starts the print'
+  );
+
+  const uploadLegacyTrue = await uploadGcodeWithPrintNow(
+    'upload printNow true',
+    'header-boolean.gcode',
+    'true'
+  );
+  expectEqual(
+    uploadLegacyTrue.code,
+    5,
+    'legacy printNow "true" still parses as true (blocked while a print is active)'
+  );
   console.log(
     JSON.stringify(
       {

@@ -65,6 +65,11 @@ npm run headless:instance -- \
 ```
 
 - Prints `EMULATOR_READY` + JSON config on stdout when servers are up.
+- Every instance registers itself in `.emulator/instances.json` (gitignored) at readiness —
+  pid, ports, serial, model — keyed by instance ID, and deregisters on graceful shutdown.
+- `npm run kill:all` tree-kills every registered instance (Windows `taskkill /T /F`; the only
+  reliable way past the npm→tsx wrapper) and prunes entries whose pid is gone. Run it whenever
+  ports 8898/8899 or test ports seem stuck. Exits 0 when nothing is running.
 - Multi-instance supervisor: `npm run headless:supervisor` with unique enforcement per instance.
 - Config file: `scripts/headless/multi-instance.example.json`.
 - HTTP-only models (Creator 5 series) accept `--tcp-port` and advertise it in `/__health` and
@@ -115,6 +120,7 @@ All endpoints are `POST` unless noted. Auth via JSON body `serialNumber` + `chec
 | `POST /control` | 7 core commands (see below) |
 | `POST /gcodeList` | File listing |
 | `POST /gcodeThumb` | File thumbnail |
+| `GET /thumb/:filename` | Per-file thumbnail (the `printFileThumbUrl` target; non-Creator-5 models) |
 | `POST /printGcode` | Start a print job |
 | `POST /uploadGcode` | Multipart file upload |
 | `POST /deleteGcode` | Delete a file |
@@ -132,16 +138,19 @@ at runtime. All are unauthenticated and use the `/__` prefix to distinguish from
 | `/__health` | GET | Health check + identity (existing) |
 | `/__state` | GET | Full internal state dump -- config, simulation status, files, presets |
 | `/__scenario` | POST | Apply a named preset or raw `PrinterScenario` object |
-| `/__simulate` | POST | Pause/resume/restart simulation tick, change speed at runtime |
+| `/__simulate` | POST | Pause/resume/restart simulation tick, change speed, jump to % |
 | `/__reset` | POST | Wipe state back to initial idle |
+| `/__shutdown` | POST | Gracefully stop the instance (headless only; 501 in the desktop app) |
 
 **`POST /__scenario`** accepts either `{ "preset": "printing" }` or
 `{ "scenario": { "machineStatus": "idle", ... } }` (mutually exclusive). Available presets:
 `idle`, `heating`, `printing`, `paused`, `pausing`, `completed`, `cancelled`, `error`,
 `cooling-after-completion`.
 
-**`POST /__simulate`** accepts `{ "action": "pause"|"resume"|"restart", "speed": 1-1000 }`.
-Both fields optional, can be combined.
+**`POST /__simulate`** accepts `{ "action": "pause"|"resume"|"restart"|"jump", "speed": 1-1000 }`.
+Both fields optional, can be combined. `jump` requires `percent` (0-100) and fast-forwards the
+active job's derived fields (elapsed, remaining, ETA, layer, Z/E position) without ticking —
+`409` when there is no job or a sticky terminal state holds.
 
 ### Legacy models have NO HTTP printer API
 
@@ -267,8 +276,9 @@ station. They differ from the 5M family in ways that match real firmware -- deli
 ### Tests
 
 - **8 unit tests** (`scripts/tests/unit-headless.test.ts`)
-- **4 integration tests** (`scripts/tests/integration-multi-instance.test.ts`) -- multi-instance
-  supervisor, Creator 5 series quirks, legacy A4 discovery, AD5X material slot-ID validation
+- **5 integration tests** (`scripts/tests/integration-multi-instance.test.ts`) -- multi-instance
+  supervisor, Creator 5 series quirks, legacy A4 discovery, AD5X material slot-ID validation,
+  registry/`__shutdown`/`kill:all`/`/thumb`/jump/upload-header coverage
 - **1 QA smoke test** (`scripts/qa-regression-smoke.ts`) -- 50+ assertions covering HTTP/TCP/UDP
 
 ## Conventions
@@ -297,13 +307,9 @@ request.**
   `userProfile_cmd`, `msConfig_cmd`, `ms_cmd`, `moveCtrl_cmd`, `extrudeCtrl_cmd`,
   `homingCtrl_cmd`, `errorCodeCtrl_cmd` are not implemented. The emulator's `/control` handler
   silently returns success for unknown commands so clients won't crash.
-- **`GET /thumb/:filename` endpoint**: `/detail` sets `printFileThumbUrl` to point at this route,
-  but no actual handler exists. Clients fall back to `/gcodeThumb` which works.
 - **TCP legacy file upload (`M28`/`M29`)**: Not needed -- modern printers use HTTP upload.
 - **TCP `M610` (rename), `M106`/`M107` (fan)**: Low priority -- these go through HTTP in
   modern clients.
-- **`uploadGcode` boolean header parsing**: Emulator checks for `"true"` but real firmware uses
-  `"0"/"1"`. The TS reference lib sends `"0"/"1"`. Minor -- low priority.
 - **Per-printer `customLedEnabled` flag**: Emulator always returns `lightCtrlState: 1` in
   `/product`, so the Android app always uses HTTP LED control. TCP LED path (`~M146`) can't be
   tested through normal app flow.

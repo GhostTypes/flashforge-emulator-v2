@@ -95,6 +95,21 @@ npm run test:unit
 npm run test:integration
 ```
 
+Stop every running headless instance (Windows-safe tree kill):
+
+```bash
+npm run kill:all
+```
+
+Instances register themselves in `.emulator/instances.json` (gitignored) when they reach readiness. `kill:all` tree-kills each registered process — plain PID kills on Windows leave the `tsx` grandchild alive holding the ports — and prunes entries whose process is already gone. `POST /__shutdown` on an instance's HTTP port also stops it gracefully from outside.
+
+## Running the Emulator in CI
+
+Downstream repos that drive the emulator in E2E (e.g. FlashForgeUI-Electron) should:
+
+1. **Pin the emulator checkout to a release tag** (e.g. `ref: v0.2.0`) instead of a branch head, so an emulator change cannot silently break — or silently change — downstream CI.
+2. **Skip the Electron binary download** when only headless instances are used. The headless runtime never touches Electron, so set `ELECTRON_SKIP_BINARY_DOWNLOAD: '1'` on the emulator's `npm ci` step. This avoids a ~110 MB download per CI run and is a supported Electron installer flag, not a hack. The emulator's own CI and `npm run dev` do not set it.
+
 ## Manual QA Checklist
 
 - Set the printer to `completed` in the QA Console and confirm that state stays visible and a new print cannot start from the File Manager or `Run Auto Lifecycle`.

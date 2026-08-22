@@ -141,6 +141,12 @@ const emulatorApi = {
   clearCompletedState: (): Promise<void> => ipcRenderer.invoke('clear-completed-state'),
 
   /**
+   * Fast-forward the active job's derived progress fields to a target percent
+   */
+  jumpPrintProgress: (percent: number): Promise<boolean> =>
+    ipcRenderer.invoke('jump-print-progress', percent),
+
+  /**
    * Update LED
    */
   updateLed: (enabled: boolean): Promise<void> => ipcRenderer.invoke('update-led', enabled),

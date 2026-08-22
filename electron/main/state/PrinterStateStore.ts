@@ -31,6 +31,7 @@ import {
   PRINTER_PROFILES,
   canStartNewPrint,
   isCreator5Series,
+  isStickyTerminalState,
 } from '../../../shared/types/printer';
 
 export type StateChangeEvent =
@@ -47,6 +48,8 @@ const DEFAULT_TOTAL_PRINT_TIME_SECONDS = 3720;
 const DEFAULT_ESTIMATED_RIGHT_LEN_MM = 14250;
 const DEFAULT_ESTIMATED_RIGHT_WEIGHT_G = 96;
 const DEFAULT_PAUSE_DELAY_MS = 500;
+/** Maximum Z travel used to derive position.z from layer progress. */
+const MAX_Z_HEIGHT_MM = 220;
 
 const DEFAULT_TEMPERATURE: TemperatureState = {
   nozzleCurrent: AMBIENT_TEMPERATURE,
@@ -1116,7 +1119,7 @@ export class PrinterStateStore extends EventEmitter {
           : Math.max(0, Math.floor(job.progress * job.totalLayers));
     }
 
-    const maxHeight = 220;
+    const maxHeight = MAX_Z_HEIGHT_MM;
     this.#state.position.z =
       job.totalLayers > 0 ? (job.currentLayer / job.totalLayers) * maxHeight : 0;
     this.#state.position.e = job.progress * 1_000;
@@ -1129,6 +1132,82 @@ export class PrinterStateStore extends EventEmitter {
     this.emit('job-changed', job);
     this.emit('position-changed', this.#state.position);
     this.emit('state-changed', this.#state);
+  }
+
+  /**
+   * Fast-forwards the active print job to a target percent (0-100).
+   *
+   * A QA/orchestration shortcut for placing a job mid-print without ticking:
+   * every derived job field (elapsed seconds, remaining minutes, firmware ETA
+   * string, layer, Z/E position) is recomputed exactly the way the auto
+   * simulation would have left it at that point, using the same helper math,
+   * so /detail, /__state, and the QA console all agree after a jump.
+   *
+   * Rules:
+   * - Sticky terminal states (completed/cancelled/error) are never resurrected
+   *   or bypassed — the jump is refused until the platform is cleared.
+   * - Requires an active job (a currentFile); the job status itself is
+   *   untouched — a paused job stays paused, a heating job stays heating.
+   * - Jumping to 100 completes the job through the same path as the auto
+   *   simulation (including cumulative stats), so the end state is identical.
+   * - Harmless in auto mode: the next tick simply continues from the jumped
+   *   elapsed time.
+   *
+   * @returns `true` when the jump was applied, `false` when refused.
+   */
+  jumpPrintProgress(percent: number): boolean {
+    if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+      return false;
+    }
+
+    if (
+      isStickyTerminalState(this.#state.machineStatus) ||
+      isStickyTerminalState(this.#state.printJob.status)
+    ) {
+      return false;
+    }
+
+    const job = this.#state.printJob;
+    if (!job.currentFile) {
+      return false;
+    }
+
+    this.#clearPauseTimeout();
+
+    const progress = clamp(percent / 100, 0, 1);
+    job.progress = progress;
+
+    if (job.totalPrintTimeSeconds > 0) {
+      job.elapsedTimeSeconds = roundToWholeNumber(progress * job.totalPrintTimeSeconds);
+      const remainingSeconds = Math.max(job.totalPrintTimeSeconds - job.elapsedTimeSeconds, 0);
+      job.remainingTimeMinutes = roundRemainingMinutesFromSeconds(remainingSeconds);
+      job.formattedEta = remainingSeconds > 0 ? formatEtaFromSeconds(remainingSeconds) : '00:00';
+    } else {
+      // No known duration: times cannot be derived, so the ETA is intentionally
+      // blank rather than a fabricated value.
+      job.elapsedTimeSeconds = 0;
+      job.remainingTimeMinutes = 0;
+      job.formattedEta = '';
+    }
+
+    if (job.totalLayers > 0) {
+      job.currentLayer =
+        progress >= 1 ? job.totalLayers : Math.max(0, Math.floor(progress * job.totalLayers));
+    }
+
+    this.#state.position.z =
+      job.totalLayers > 0 ? (job.currentLayer / job.totalLayers) * MAX_Z_HEIGHT_MM : 0;
+    this.#state.position.e = job.progress * 1_000;
+
+    if (job.progress >= 1) {
+      this.completePrint({ recordCumulative: true });
+      return true;
+    }
+
+    this.emit('job-changed', job);
+    this.emit('position-changed', this.#state.position);
+    this.emit('state-changed', this.#state);
+    return true;
   }
 
   applyScenarioPreset(presetId: ScenarioPresetId): void {

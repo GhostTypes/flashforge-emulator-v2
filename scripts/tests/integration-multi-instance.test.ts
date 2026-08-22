@@ -8,6 +8,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import type { Readable } from 'node:stream';
 import test from 'node:test';
+import { isPidAlive, loadInstanceRegistry } from '../headless/instance-registry';
 
 const TEST_TIMEOUT_MS = 90_000;
 
@@ -1146,7 +1147,7 @@ test(
 
       // A rejected mapping must not have started anything.
       detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
-      assert.equal(detail.printFileName, '', 'rejected mappings must not start a job');
+      assert.equal(detail['printFileName'], '', 'rejected mappings must not start a job');
 
       const printResponse = await fetch(`http://127.0.0.1:${c5p.httpPort}/printGcode`, {
         method: 'POST',
@@ -1170,8 +1171,8 @@ test(
       assert.equal(((await printResponse.json()) as { code: number }).code, 0);
 
       detail = await fetchDetail(c5p.httpPort, c5p.serial, 'E2E-CODE-C5P');
-      assert.equal(detail.printFileName, 'e2e-creator5.3mf');
-      assert.match(String(detail.printFileThumbUrl), /\/getThum$/);
+      assert.equal(detail['printFileName'], 'e2e-creator5.3mf');
+      assert.match(String(detail['printFileThumbUrl']), /\/getThum$/);
       assert.deepEqual(detail.nozzleTargetTemps, [220, 0, 0, 0], 'tool 0 seeded for the job');
 
       // --- GET /getThum: unauthenticated PNG ---
@@ -1496,6 +1497,363 @@ test(
       }
       await waitForSupervisorExit(supervisor);
       stdoutReader.close();
+    }
+  }
+);
+
+test(
+  'instance registry, __shutdown, kill:all, /thumb, __simulate jump, and upload headers',
+  { timeout: TEST_TIMEOUT_MS, concurrency: false },
+  async () => {
+    const [tcpPort, httpPort] = await Promise.all([getFreePort(), getFreePort()]);
+    const instanceId = 'registry-e2e';
+    const staleInstanceId = 'registry-stale-e2e';
+    const serial = 'E2E-SN-REGISTRY';
+    const checkCode = 'E2E-CODE-REGISTRY';
+
+    const { command, prefixArgs } = getRunnerCommand();
+    const instanceScript = path.resolve(process.cwd(), 'scripts/headless/run-instance.ts');
+    const instanceArgs = [
+      '--instance-id',
+      instanceId,
+      '--model',
+      'adventurer-5m-pro',
+      '--serial',
+      serial,
+      '--check-code',
+      checkCode,
+      '--machine-name',
+      'Registry E2E',
+      '--tcp-port',
+      String(tcpPort),
+      '--http-port',
+      String(httpPort),
+      '--discovery-enabled',
+      'false',
+      '--simulation-mode',
+      'manual',
+      '--simulation-speed',
+      '100',
+    ];
+
+    const child = spawn(command, [...prefixArgs, instanceScript, ...instanceArgs], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const stdoutReader = readline.createInterface({ input: child.stdout });
+    let ready = false;
+    stdoutReader.on('line', (line: string) => {
+      if (line.trim() === 'EMULATOR_READY') {
+        ready = true;
+      }
+    });
+    const stderrLines: string[] = [];
+    const stderrReader = readline.createInterface({ input: child.stderr });
+    stderrReader.on('line', (line: string) => {
+      stderrLines.push(line);
+    });
+
+    async function fetchDetail(): Promise<Record<string, unknown>> {
+      const response = await fetch(`http://127.0.0.1:${httpPort}/detail`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ serialNumber: serial, checkCode }),
+      });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { code: number; detail: Record<string, unknown> };
+      assert.equal(body.code, 0);
+      return body.detail;
+    }
+
+    async function uploadWithPrintNow(
+      fileName: string,
+      printNow: string
+    ): Promise<{ code: number; message: string }> {
+      const formData = new FormData();
+      formData.set('gcodeFile', new Blob(['; E2E HEADER TEST\nG28\nM84\n']), fileName);
+      const response = await fetch(`http://127.0.0.1:${httpPort}/uploadGcode`, {
+        method: 'POST',
+        headers: {
+          serialNumber: serial,
+          checkCode,
+          printNow,
+          levelingBeforePrint: '0',
+        },
+        body: formData,
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()) as { code: number; message: string };
+    }
+
+    function waitForLocalChildExit(
+      target: ChildProcessByStdio<null, Readable, Readable>,
+      timeoutMs = 10_000
+    ): Promise<void> {
+      if (target.exitCode !== null) {
+        return Promise.resolve();
+      }
+
+      return new Promise<void>((resolve) => {
+        const timeoutId = setTimeout(() => {
+          if (target.exitCode === null && target.pid) {
+            if (process.platform === 'win32') {
+              spawnSync('taskkill', ['/PID', String(target.pid), '/T', '/F']);
+            } else {
+              target.kill('SIGKILL');
+            }
+          }
+          resolve();
+        }, timeoutMs);
+
+        target.once('exit', () => {
+          clearTimeout(timeoutId);
+          resolve();
+        });
+      });
+    }
+
+    try {
+      const startupDeadline = Date.now() + 20_000;
+      while (!ready && Date.now() < startupDeadline && child.exitCode === null) {
+        await wait(100);
+      }
+      assert.ok(ready, `Instance did not reach readiness. stderr:\n${stderrLines.join('\n')}`);
+      await waitForHealthReady(httpPort, 10_000);
+
+      // --- registry lifecycle: entry appears once EMULATOR_READY is printed ---
+      const registryEntry = loadInstanceRegistry().get(instanceId);
+      assert.ok(registryEntry, 'EMULATOR_READY must register the instance');
+      assert.equal(registryEntry.pid, child.pid);
+      assert.equal(registryEntry.tcpPort, tcpPort);
+      assert.equal(registryEntry.httpPort, httpPort);
+      assert.equal(registryEntry.serial, serial);
+      assert.equal(registryEntry.model, 'adventurer-5m-pro');
+      assert.ok(!Number.isNaN(Date.parse(registryEntry.startedAt)), 'startedAt is an ISO date');
+      assert.ok(isPidAlive(registryEntry.pid), 'registered pid is alive');
+
+      // --- GET /thumb/:filename serves the stored thumbnail bytes ---
+      const thumbFixtureBase64 = 'dGh1bWItYnl0ZXMtZml4dHVyZQ==';
+      const thumbGcode = [
+        '; thumbnail begin',
+        `; ${thumbFixtureBase64}`,
+        '; thumbnail end',
+        '; E2E THUMB TEST',
+        'G28',
+        'M84',
+        '',
+      ].join('\n');
+      const thumbForm = new FormData();
+      thumbForm.set('gcodeFile', new Blob([thumbGcode]), 'thumb-e2e.gcode');
+      const thumbUpload = await fetch(`http://127.0.0.1:${httpPort}/uploadGcode`, {
+        method: 'POST',
+        headers: { serialNumber: serial, checkCode, printNow: '0' },
+        body: thumbForm,
+      });
+      assert.equal(((await thumbUpload.json()) as { code: number }).code, 0);
+
+      const thumbResponse = await fetch(`http://127.0.0.1:${httpPort}/thumb/thumb-e2e.gcode`);
+      assert.equal(thumbResponse.status, 200);
+      assert.equal(thumbResponse.headers.get('content-type'), 'image/png');
+      assert.deepEqual(
+        Buffer.from(await thumbResponse.arrayBuffer()),
+        Buffer.from(thumbFixtureBase64, 'base64'),
+        '/thumb must serve the exact stored thumbnail bytes'
+      );
+
+      const missingThumbResponse = await fetch(`http://127.0.0.1:${httpPort}/thumb/missing.gcode`);
+      assert.equal(missingThumbResponse.status, 404);
+
+      // --- __simulate jump: derived fields and validation ---
+      const printingPreset = await fetch(`http://127.0.0.1:${httpPort}/__scenario`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ preset: 'printing' }),
+      });
+      assert.equal(((await printingPreset.json()) as { ok: boolean }).ok, true);
+
+      const jumpResponse = await fetch(`http://127.0.0.1:${httpPort}/__simulate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'jump', percent: 75 }),
+      });
+      assert.equal(jumpResponse.status, 200);
+      assert.equal(((await jumpResponse.json()) as { ok: boolean }).ok, true);
+
+      const detailAfterJump = await fetchDetail();
+      assert.equal(detailAfterJump['printProgress'], 0.75);
+      assert.equal(detailAfterJump['printDuration'], 2790, 'printDuration stays in seconds');
+      assert.equal(detailAfterJump['printEta'], '00:16', 'printEta keeps firmware HH:MM format');
+      assert.equal(detailAfterJump['printLayer'], 180, 'layer derived from totalLayers');
+      assert.equal(
+        detailAfterJump['estimatedTime'],
+        2790 + 16 * 60,
+        'estimatedTime = elapsed + remainingMinutes * 60'
+      );
+      assert.match(
+        String(detailAfterJump['printFileThumbUrl']),
+        /\/thumb\//,
+        '/detail advertises /thumb on non-Creator-5 models'
+      );
+
+      const jumpMissingPercent = await fetch(`http://127.0.0.1:${httpPort}/__simulate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'jump' }),
+      });
+      assert.equal(jumpMissingPercent.status, 400);
+
+      const jumpOutOfRange = await fetch(`http://127.0.0.1:${httpPort}/__simulate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'jump', percent: 150 }),
+      });
+      assert.equal(jumpOutOfRange.status, 400);
+
+      // --- sticky terminal states refuse jumps ---
+      const completedPreset = await fetch(`http://127.0.0.1:${httpPort}/__scenario`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ preset: 'completed' }),
+      });
+      assert.equal(((await completedPreset.json()) as { ok: boolean }).ok, true);
+
+      const jumpCompleted = await fetch(`http://127.0.0.1:${httpPort}/__simulate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'jump', percent: 30 }),
+      });
+      assert.equal(jumpCompleted.status, 409);
+      const detailAfterRefusedJump = await fetchDetail();
+      assert.equal(
+        detailAfterRefusedJump['status'],
+        'completed',
+        'refused jump leaves state intact'
+      );
+      assert.equal(detailAfterRefusedJump['printProgress'], 1);
+
+      // --- uploadGcode boolean headers: firmware "1"/"0" and legacy "true" ---
+      const resetResponse = await fetch(`http://127.0.0.1:${httpPort}/__reset`, { method: 'POST' });
+      assert.equal(((await resetResponse.json()) as { ok: boolean }).ok, true);
+
+      const uploadZero = await uploadWithPrintNow('header-zero.gcode', '0');
+      assert.equal(uploadZero.code, 0, uploadZero.message);
+      assert.equal((await fetchDetail())['printFileName'], '', 'printNow "0" must not start a job');
+
+      const uploadOne = await uploadWithPrintNow('header-one.gcode', '1');
+      assert.equal(uploadOne.code, 0, uploadOne.message);
+      assert.equal(
+        (await fetchDetail())['printFileName'],
+        'header-one.gcode',
+        'printNow "1" starts the print'
+      );
+
+      const uploadLegacyTrue = await uploadWithPrintNow('header-true.gcode', 'true');
+      assert.equal(
+        uploadLegacyTrue.code,
+        5,
+        'legacy printNow "true" still parses as true and is blocked while printing'
+      );
+
+      // --- __shutdown reuses the graceful path and deregisters ---
+      const shutdownResponse = await fetch(`http://127.0.0.1:${httpPort}/__shutdown`, {
+        method: 'POST',
+      });
+      assert.equal(shutdownResponse.status, 200);
+      assert.equal(((await shutdownResponse.json()) as { ok: boolean }).ok, true);
+
+      await waitForLocalChildExit(child);
+      assert.equal(
+        child.exitCode,
+        0,
+        `graceful shutdown must exit 0. stderr:\n${stderrLines.join('\n')}`
+      );
+      assert.ok(
+        !loadInstanceRegistry().has(instanceId),
+        'clean shutdown removes the registry entry'
+      );
+
+      // --- hard kill leaves a stale entry; kill:all prunes it and exits 0 ---
+      const staleArgs = instanceArgs.map((value, index) =>
+        index >= 1 && instanceArgs[index - 1] === '--instance-id' ? staleInstanceId : value
+      );
+      const staleChild = spawn(command, [...prefixArgs, instanceScript, ...staleArgs], {
+        cwd: process.cwd(),
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      const staleReader = readline.createInterface({ input: staleChild.stdout });
+      const staleStderrLines: string[] = [];
+      const staleStderrReader = readline.createInterface({ input: staleChild.stderr });
+      staleStderrReader.on('line', (line: string) => {
+        staleStderrLines.push(line);
+      });
+      let staleReady = false;
+      staleReader.on('line', (line: string) => {
+        if (line.trim() === 'EMULATOR_READY') {
+          staleReady = true;
+        }
+      });
+
+      const staleDeadline = Date.now() + 20_000;
+      while (!staleReady && Date.now() < staleDeadline && staleChild.exitCode === null) {
+        await wait(100);
+      }
+      assert.ok(
+        staleReady,
+        `stale instance did not reach readiness (exitCode=${String(staleChild.exitCode)}). stderr:\n${staleStderrLines.join('\n')}`
+      );
+      assert.ok(loadInstanceRegistry().has(staleInstanceId));
+
+      if (process.platform === 'win32') {
+        assert.ok(staleChild.pid);
+        spawnSync('taskkill', ['/PID', String(staleChild.pid), '/T', '/F']);
+      } else {
+        staleChild.kill('SIGKILL');
+      }
+      await waitForLocalChildExit(staleChild);
+
+      assert.ok(
+        loadInstanceRegistry().has(staleInstanceId),
+        'a hard kill cannot run the unregister path — the entry stays stale'
+      );
+
+      const killAllScript = path.resolve(process.cwd(), 'scripts/headless/kill-all.ts');
+      const killAll = spawnSync(command, [...prefixArgs, killAllScript], {
+        cwd: process.cwd(),
+        env: process.env,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      assert.equal(
+        killAll.status,
+        0,
+        `kill:all must exit 0 while pruning stale entries. stdout:\n${killAll.stdout}\nstderr:\n${killAll.stderr}`
+      );
+      assert.ok(!loadInstanceRegistry().has(staleInstanceId), 'kill:all prunes the stale entry');
+
+      const killAllIdle = spawnSync(command, [...prefixArgs, killAllScript], {
+        cwd: process.cwd(),
+        env: process.env,
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      assert.equal(killAllIdle.status, 0, 'kill:all must exit 0 when nothing is running');
+      staleReader.close();
+      staleStderrReader.close();
+    } finally {
+      if (child.exitCode === null && child.pid) {
+        if (process.platform === 'win32') {
+          spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F']);
+        } else {
+          child.kill('SIGKILL');
+        }
+      }
+      await waitForLocalChildExit(child, 3_000);
+      stdoutReader.close();
+      stderrReader.close();
     }
   }
 );

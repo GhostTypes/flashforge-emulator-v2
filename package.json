@@ -1,6 +1,6 @@
 {
   "name": "flashforge-emulator-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Fully-featured emulator for FlashForge 3D printers with TCP and HTTP protocol support",
   "main": "dist-electron/main/index.js",
   "author": "GhostTypes",
@@ -12,6 +12,7 @@
     "preview": "electron-vite preview",
     "headless:instance": "tsx scripts/headless/run-instance.ts",
     "headless:supervisor": "tsx scripts/headless/run-supervisor.ts",
+    "kill:all": "tsx scripts/headless/kill-all.ts",
     "smoke:qa": "tsx scripts/qa-regression-smoke.ts",
     "test:unit": "tsx --test scripts/tests/unit-headless.test.ts",
     "test:integration": "tsx --test scripts/tests/integration-multi-instance.test.ts",

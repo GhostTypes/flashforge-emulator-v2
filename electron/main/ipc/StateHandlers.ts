@@ -186,6 +186,13 @@ export function registerStateHandlers(): void {
   });
 
   /**
+   * Fast-forward the active job's derived progress fields to a target percent
+   */
+  ipcMain.handle('jump-print-progress', (_event, percent: number): boolean => {
+    return printerStateStore.jumpPrintProgress(percent);
+  });
+
+  /**
    * Update LED
    */
   ipcMain.handle('update-led', (_event, enabled: boolean): void => {

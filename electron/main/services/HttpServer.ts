@@ -162,6 +162,17 @@ function clampTemperature(value: number, min: number, max: number): number {
 }
 
 /**
+ * Firmware-style boolean header parsing for /uploadGcode. Real firmware and
+ * the TS reference client send "1"/"0"; "true"/"false" is still accepted for
+ * older clients. Absent, empty, or any other value reads as false.
+ */
+function parseBooleanHeader(value: string | string[] | undefined): boolean {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const normalized = raw?.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true';
+}
+
+/**
  * Multer configuration for file uploads
  * Uses memory storage for the emulator
  */
@@ -528,6 +539,9 @@ export class HttpServer extends EventEmitter {
     // POST /__reset - Wipe state back to initial idle
     this.#app.post('/__reset', this.#handleReset.bind(this));
 
+    // POST /__shutdown - Gracefully stop the instance (same path as SIGTERM)
+    this.#app.post('/__shutdown', this.#handleShutdown.bind(this));
+
     // Legacy (TCP-only) models — Adventurer 3/4 — have no HTTP REST server on
     // real hardware. We deliberately do NOT register the printer protocol routes
     // for them, so /detail and friends return Express's default 404. This makes
@@ -574,6 +588,15 @@ export class HttpServer extends EventEmitter {
     // registered and falls through to Express's default 404 like real hardware.
     if (!isCreator5Series(this.#model)) {
       this.#app.post('/deleteGcode', this.#handleDeleteGcode.bind(this));
+    }
+
+    // GET /thumb/:filename - Per-file thumbnail bytes for the printFileThumbUrl
+    // that /detail advertises on non-Creator-5 models (the Creator 5 series
+    // advertises /getThum instead). Serves the same stored thumbnail bytes as
+    // /gcodeThumb; like /getThum on real firmware it is served without
+    // credentials because clients load it from <img src> tags.
+    if (!isCreator5Series(this.#model)) {
+      this.#app.get('/thumb/:filename', this.#handleThumbFile);
     }
 
     // Error handler
@@ -854,18 +877,38 @@ export class HttpServer extends EventEmitter {
   /**
    * POST /__simulate - Control the simulation service at runtime.
    *
-   * Accepts optional `{ "action": "pause"|"resume"|"restart", "speed": 1-1000 }`.
-   * Fields can be sent together or individually.
+   * Accepts optional `{ "action": "pause"|"resume"|"restart"|"jump", "speed": 1-1000 }`.
+   * Fields can be sent together or individually. `jump` additionally requires
+   * `percent` (0-100) and fast-forwards the active job's derived progress
+   * fields without ticking.
    */
   #handleSimulate(req: Request, res: Response): void {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const action = body['action'] as string | undefined;
     const speed = body['speed'] as number | undefined;
+    const percent = body['percent'];
 
-    if (action !== undefined && action !== 'pause' && action !== 'resume' && action !== 'restart') {
+    if (
+      action !== undefined &&
+      action !== 'pause' &&
+      action !== 'resume' &&
+      action !== 'restart' &&
+      action !== 'jump'
+    ) {
       res.status(400).json({
         ok: false,
-        error: `Unknown action: '${action}'. Must be 'pause', 'resume', or 'restart'`,
+        error: `Unknown action: '${action}'. Must be 'pause', 'resume', 'restart', or 'jump'`,
+      });
+      return;
+    }
+
+    if (
+      action === 'jump' &&
+      (typeof percent !== 'number' || !Number.isFinite(percent) || percent < 0 || percent > 100)
+    ) {
+      res.status(400).json({
+        ok: false,
+        error: "percent must be a number between 0 and 100 when action is 'jump'",
       });
       return;
     }
@@ -891,6 +934,16 @@ export class HttpServer extends EventEmitter {
       simulationService.stop();
       simulationService.start();
       this.#simulationPaused = false;
+    } else if (action === 'jump') {
+      const jumped = printerStateStore.jumpPrintProgress(percent as number);
+      if (!jumped) {
+        res.status(409).json({
+          ok: false,
+          error:
+            'No jumpable print job: start a job first, and clear sticky terminal states (completed/cancelled/error) before jumping',
+        });
+        return;
+      }
     }
 
     res.json({
@@ -913,6 +966,30 @@ export class HttpServer extends EventEmitter {
   #handleReset(_req: Request, res: Response): void {
     printerStateStore.reset();
     res.json({ ok: true, message: 'State reset to initial idle' });
+  }
+
+  /**
+   * POST /__shutdown - Gracefully stop this instance.
+   *
+   * Emits 'shutdown-requested' after the response has flushed; the headless
+   * entrypoint wires that event to the same shutdown path its SIGTERM handler
+   * uses (stop servers, deregister from the instance registry, exit 0). In the
+   * desktop app no listener is attached — the QA console still drives those
+   * servers — so the route refuses rather than half-stopping them.
+   */
+  #handleShutdown(_req: Request, res: Response): void {
+    if (this.listenerCount('shutdown-requested') === 0) {
+      res.status(501).json({
+        ok: false,
+        error: 'No shutdown handler is configured for this process',
+      });
+      return;
+    }
+
+    res.json({ ok: true, message: 'Shutting down' });
+    res.on('finish', () => {
+      this.emit('shutdown-requested');
+    });
   }
 
   /**
@@ -1297,12 +1374,12 @@ export class HttpServer extends EventEmitter {
     const fileSize = uploadedFile.size;
 
     // Parse print-related headers
-    const printNow = req.headers['printnow'] === 'true';
-    const levelingBeforePrint = req.headers['levelingbeforeprint'] === 'true';
+    const printNow = parseBooleanHeader(req.headers['printnow']);
+    const levelingBeforePrint = parseBooleanHeader(req.headers['levelingbeforeprint']);
 
     // Parse AD5X headers
-    const flowCalibration = req.headers['flowcalibration'] === 'true';
-    const useMatlStation = req.headers['usematlstation'] === 'true';
+    const flowCalibration = parseBooleanHeader(req.headers['flowcalibration']);
+    const useMatlStation = parseBooleanHeader(req.headers['usematlstation']);
     const parsedGcodeToolCnt = Number.parseInt(req.headers['gcodetoolcnt'] as string, 10);
     const gcodeToolCnt =
       Number.isFinite(parsedGcodeToolCnt) && parsedGcodeToolCnt > 0 ? parsedGcodeToolCnt : 0;
@@ -1444,6 +1521,29 @@ export class HttpServer extends EventEmitter {
 
     this.emit('response-sent', { path: '/getThum' });
     res.type('image/png').send(Buffer.from(base64, 'base64'));
+  };
+
+  /**
+   * GET /thumb/:filename - Stored thumbnail bytes for one file.
+   *
+   * Serves the exact same bytes /gcodeThumb would return for the file (the
+   * extracted G-code thumbnail, or the 1x1 placeholder when none was found),
+   * so clients following the printFileThumbUrl from /detail get a real image
+   * instead of falling back to /gcodeThumb. Unknown filenames 404 in the
+   * plain-text style used by the other non-JSON not-found paths.
+   */
+  #handleThumbFile = (req: Request, res: Response): void => {
+    const fileName = req.params['filename'] ?? '';
+    const file = printerStateStore.getFile(fileName);
+
+    if (!file) {
+      res.status(404).type('text/plain').send('Not found');
+      return;
+    }
+
+    const thumbnailData = file.thumbnail || PLACEHOLDER_THUMBNAIL_PNG;
+    this.emit('response-sent', { path: '/thumb', fileName });
+    res.type('image/png').send(Buffer.from(thumbnailData, 'base64'));
   };
 
   /**

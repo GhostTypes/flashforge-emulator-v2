@@ -267,6 +267,7 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
   const [draft, setDraft] = useState<ScenarioDraft>(() => createDraftFromState(state));
   const [jsonEditor, setJsonEditor] = useState('');
   const [jsonMessage, setJsonMessage] = useState<string | null>(null);
+  const [jumpPercent, setJumpPercent] = useState(50);
   const lastModelRef = useRef(state.model);
 
   useEffect(() => {
@@ -334,6 +335,15 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
     }
     setJsonMessage(
       'Auto lifecycle started. The completed state will remain visible until cleared.'
+    );
+  };
+
+  const jumpToPercent = async () => {
+    const jumped = await window.api.jumpPrintProgress(jumpPercent);
+    setJsonMessage(
+      jumped
+        ? `Jumped to ${jumpPercent}% — elapsed, remaining, ETA, and layers were recomputed.`
+        : 'Jump blocked: start a job first, and clear sticky terminal states (completed/cancelled/error) before jumping.'
     );
   };
 
@@ -405,7 +415,7 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto]">
+        <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_auto_auto_auto_auto_auto]">
           <div className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-4">
             <div className="mb-2 flex items-center justify-between text-sm text-neutral-400">
               <span>Simulation Speed</span>
@@ -422,6 +432,21 @@ export const PrintControls: FunctionComponent<PrintControlsProps> = ({
               }}
               className="mt-3"
             />
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-neutral-800 bg-neutral-950/60 px-4 py-2">
+            <div className="flex flex-col">
+              <span className="text-xs uppercase tracking-wide text-neutral-500">Jump to %</span>
+              <span className="text-sm text-neutral-500">fast-forward</span>
+            </div>
+            <NumberInput
+              value={jumpPercent}
+              min={0}
+              max={100}
+              onValueChange={(value) => setJumpPercent(Math.round(value) || 0)}
+              className="w-20"
+            />
+            <ActionButton icon={Timer} label="Jump" onClick={() => void jumpToPercent()} />
           </div>
 
           <ActionButton
