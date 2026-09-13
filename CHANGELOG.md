@@ -8,6 +8,13 @@ This file starts at the change below. For anything earlier, read the git history
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-13
+
+### Added
+
+- **Opt-in strict mode for unknown `/control` commands.** `--strict-control` (or `strictControl` in supervisor configs) rejects any cmd outside the model's documented command set with `code:-1` instead of the firmware-faithful silent ACK, so client test-suites can catch payload bugs instead of false-passing. Default remains OFF — the silent ACK is documented real-firmware behavior (an unrecognized cmd gets `{code:0,"Success"}`). Whitelists are derived from the firmware-verified endpoint specs per model; documented-but-unimplemented commands stay ACKed and emit a distinguishable `command-unimplemented` event.
+- **Spoolman mock sidecar for e2e harnesses.** `npm run headless:spoolman` runs a standalone Spoolman-API-compatible server (`--port`, `--seed`) for exercising client integrations without a real Spoolman: spool list/get endpoints, `PUT /use` with weight/length conversion and counter updates, plus `__requests` (usage ledger for assertions), `__reset`, and `__shutdown` control routes. It is a separate process by design — real deployments run one Spoolman service, not one per printer.
+
 ## [0.2.0] - 2026-08-21
 
 ### Added
