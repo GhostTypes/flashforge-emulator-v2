@@ -122,6 +122,7 @@ export class HeadlessEmulatorRuntime {
       httpPort: this.#options.httpPort,
       simulationMode: this.#options.simulationMode,
       simulationSpeed: this.#options.simulationSpeed,
+      strictControl: this.#options.strictControl,
       discoveryConfig: {
         ...currentDiscoveryConfig,
         machineName: this.#options.machineName,

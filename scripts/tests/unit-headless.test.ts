@@ -99,6 +99,41 @@ test('parseHeadlessInstanceArgs supports --discovery-enabled false', () => {
   assert.equal(parsed.simulationMode, 'manual');
 });
 
+test('parseHeadlessInstanceArgs handles --strict-control (explicit value, bare flag, and default off)', () => {
+  const baseArgs = [
+    '--instance-id',
+    'printer-a',
+    '--model',
+    'adventurer-5m-pro',
+    '--serial',
+    'SN-A',
+    '--check-code',
+    'CODE-A',
+    '--machine-name',
+    'QA Printer A',
+    '--tcp-port',
+    '19001',
+    '--http-port',
+    '19002',
+    '--simulation-mode',
+    'auto',
+    '--simulation-speed',
+    '100',
+  ];
+
+  const explicit = parseHeadlessInstanceArgs([...baseArgs, '--strict-control', 'true']);
+  assert.equal(explicit.strictControl, true);
+
+  const bare = parseHeadlessInstanceArgs([...baseArgs, '--strict-control']);
+  assert.equal(bare.strictControl, true);
+
+  const disabled = parseHeadlessInstanceArgs([...baseArgs, '--strict-control', 'false']);
+  assert.equal(disabled.strictControl, false);
+
+  const omitted = parseHeadlessInstanceArgs([...baseArgs]);
+  assert.equal(omitted.strictControl, false);
+});
+
 test('validateSupervisorInstances applies defaults for optional fields', () => {
   const validated = validateSupervisorInstances([
     {

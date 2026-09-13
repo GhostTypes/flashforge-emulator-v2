@@ -680,6 +680,117 @@ export const PRINTER_PID: Readonly<Partial<Record<PrinterModel, number>>> = {
 } as const;
 
 /**
+ * `/control` command ids each model's firmware is documented to accept, transcribed from the
+ * firmware-verified API docs (`flashforge-api-docs/endpoints/endpoints_*.yaml`, `/control`
+ * payload `oneOf` schemas):
+ * - Creator 5 series: `endpoints_creator5_1.9.2.yaml` (12 cmds)
+ * - AD5X: `endpoints_ad5x_1.2.1.yaml` (22 cmds)
+ * - 5M / 5M Pro: `endpoints_5m_3.2.7.yaml` (15 cmds)
+ *
+ * Used by the opt-in strict-control mode (`--strict-control`, see EmulatorConfig.strictControl):
+ * a `/control` cmd with no emulator switch case that IS listed here is a real firmware command
+ * the emulator does not simulate -- it stays ACK'd `{code:0}` (firmware parity) and emits a
+ * `command-unimplemented` event. A cmd NOT listed here is unknown even to real firmware and is
+ * rejected with `code:-1` when strict mode is on.
+ *
+ * Commands the emulator implements (e.g. `temperatureCtl_cmd`) never consult this list -- they
+ * are handled before the unknown-command path regardless of strict mode.
+ *
+ * Legacy TCP-only models (Adventurer 3/4) have no HTTP `/control` endpoint at all, so their
+ * lists are empty and unreachable.
+ */
+export const DOCUMENTED_CONTROL_COMMANDS: Readonly<Record<PrinterModel, readonly string[]>> = {
+  'adventurer-3': [],
+  'adventurer-4': [],
+  'adventurer-5m': [
+    'newJob_cmd',
+    'lightControl_cmd',
+    'circulateCtl_cmd',
+    'temperatureCtl_cmd',
+    'printerCtl_cmd',
+    'jobCtl_cmd',
+    'delayClose_cmd',
+    'reName_cmd',
+    'calibration_cmd',
+    'streamCtrl_cmd',
+    'userProfile_cmd',
+    'deviceUnregister_cmd',
+    'stateCtrl_cmd',
+    'deviceUpdateDetail_cmd',
+    'newLocalJob_cmd',
+  ],
+  'adventurer-5m-pro': [
+    'newJob_cmd',
+    'lightControl_cmd',
+    'circulateCtl_cmd',
+    'temperatureCtl_cmd',
+    'printerCtl_cmd',
+    'jobCtl_cmd',
+    'delayClose_cmd',
+    'reName_cmd',
+    'calibration_cmd',
+    'streamCtrl_cmd',
+    'userProfile_cmd',
+    'deviceUnregister_cmd',
+    'stateCtrl_cmd',
+    'deviceUpdateDetail_cmd',
+    'newLocalJob_cmd',
+  ],
+  'adventurer-5x': [
+    'newJob_cmd',
+    'lightControl_cmd',
+    'circulateCtl_cmd',
+    'temperatureCtl_cmd',
+    'printerCtl_cmd',
+    'jobCtl_cmd',
+    'delayClose_cmd',
+    'reName_cmd',
+    'calibration_cmd',
+    'streamCtrl_cmd',
+    'userProfile_cmd',
+    'msConfig_cmd',
+    'ipdMsConfig_cmd',
+    'ms_cmd',
+    'ipdMs_cmd',
+    'moveCtrl_cmd',
+    'extrudeCtrl_cmd',
+    'homingCtrl_cmd',
+    'errorCodeCtrl_cmd',
+    'deviceUnregister_cmd',
+    'stateCtrl_cmd',
+    'deviceUpdateDetail_cmd',
+  ],
+  'creator-5': [
+    'temperatureCtl_cmd',
+    'printerCtl_cmd',
+    'lightControl_cmd',
+    'circulateCtl_cmd',
+    'jobCtl_cmd',
+    'stateCtrl_cmd',
+    'msConfig_cmd',
+    'calibration_cmd',
+    'reName_cmd',
+    'streamCtrl_cmd',
+    'delayClose_cmd',
+    'userProfile_cmd',
+  ],
+  'creator-5-pro': [
+    'temperatureCtl_cmd',
+    'printerCtl_cmd',
+    'lightControl_cmd',
+    'circulateCtl_cmd',
+    'jobCtl_cmd',
+    'stateCtrl_cmd',
+    'msConfig_cmd',
+    'calibration_cmd',
+    'reName_cmd',
+    'streamCtrl_cmd',
+    'delayClose_cmd',
+    'userProfile_cmd',
+  ],
+} as const;
+
+/**
  * Simulation mode for print jobs
  */
 export type SimulationMode = 'auto' | 'manual';
@@ -730,6 +841,14 @@ export interface EmulatorConfig {
   simulationMode: SimulationMode;
   /** Auto-simulation speed multiplier */
   simulationSpeed: number;
+  /**
+   * Opt-in strict handling of unknown `/control` cmds (default off). When on, a cmd that is
+   * neither implemented by the emulator nor documented for the model (see
+   * DOCUMENTED_CONTROL_COMMANDS) is rejected with `code:-1` instead of the firmware-parity
+   * silent ACK. Documented-but-unimplemented cmds are always ACK'd. Testing aid only --
+   * real firmware silently ACKs unknown cmds.
+   */
+  strictControl: boolean;
   /** Whether to start servers on app launch */
   autoStart: boolean;
   /** Network interface for UDP discovery (empty = all interfaces) */
@@ -766,6 +885,7 @@ export const DEFAULT_CONFIG: EmulatorConfig = {
   checkCode: '12345',
   simulationMode: 'auto',
   simulationSpeed: 100,
+  strictControl: false,
   autoStart: false,
   discoveryInterface: '',
   cumulativePrintTime: 0,

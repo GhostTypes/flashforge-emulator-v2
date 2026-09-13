@@ -11,6 +11,7 @@ const KNOWN_OPTION_NAMES = new Set([
   'discovery-enabled',
   'simulation-mode',
   'simulation-speed',
+  'strict-control',
 ]);
 
 const MODEL_SET: ReadonlySet<PrinterModel> = new Set([
@@ -36,6 +37,8 @@ export interface HeadlessInstanceOptions {
   discoveryEnabled: boolean;
   simulationMode: SimulationMode;
   simulationSpeed: number;
+  /** Opt-in strict handling of unknown /control cmds (see EmulatorConfig.strictControl). */
+  strictControl: boolean;
 }
 
 function parseOptionMap(argv: readonly string[]): Map<string, string | undefined> {
@@ -144,6 +147,14 @@ export function parseHeadlessInstanceArgs(argv: readonly string[]): HeadlessInst
   const discoveryEnabled =
     discoveryOption === undefined ? true : parseBoolean(discoveryOption, 'discovery-enabled');
 
+  // --strict-control is opt-in: absent (or explicit false) keeps firmware-parity silent
+  // ACKs for unknown /control cmds. A bare --strict-control flag counts as true.
+  const strictControlValue = options.get('strict-control');
+  const strictControl =
+    strictControlValue !== undefined
+      ? parseBoolean(strictControlValue, 'strict-control')
+      : options.has('strict-control');
+
   const parsed: HeadlessInstanceOptions = {
     instanceId: getRequiredStringOption(options, 'instance-id'),
     model: modelCandidate as PrinterModel,
@@ -155,6 +166,7 @@ export function parseHeadlessInstanceArgs(argv: readonly string[]): HeadlessInst
     discoveryEnabled,
     simulationMode: simulationModeCandidate as SimulationMode,
     simulationSpeed: parseSimulationSpeed(options),
+    strictControl,
   };
 
   if (parsed.tcpPort === parsed.httpPort) {
@@ -186,5 +198,7 @@ export function buildHeadlessInstanceCliArgs(options: HeadlessInstanceOptions): 
     options.simulationMode,
     '--simulation-speed',
     String(options.simulationSpeed),
+    '--strict-control',
+    String(options.strictControl),
   ];
 }

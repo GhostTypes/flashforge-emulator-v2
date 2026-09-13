@@ -61,7 +61,8 @@ npm run headless:instance -- \
   --http-port 28898 \
   --discovery-enabled true \
   --simulation-mode auto \
-  --simulation-speed 100
+  --simulation-speed 100 \
+  --strict-control false
 ```
 
 - Prints `EMULATOR_READY` + JSON config on stdout when servers are up.
@@ -74,6 +75,15 @@ npm run headless:instance -- \
 - Config file: `scripts/headless/multi-instance.example.json`.
 - HTTP-only models (Creator 5 series) accept `--tcp-port` and advertise it in `/__health` and
   the discovery packet, but bind no TCP server. Real firmware runs no TCP service on 8899.
+- **Opt-in strict `/control` mode**: `--strict-control true` (or a bare `--strict-control`) makes
+  unknown `/control` cmds return `code:-1` (message mentions "strict control mode") instead of
+  the firmware-parity silent ACK — useful so client test-suites catch payload bugs that a silent
+  ACK would false-pass. Per-model documented command sets live in `DOCUMENTED_CONTROL_COMMANDS`
+  (`shared/types/printer.ts`, transcribed from `flashforge-api-docs/endpoints/*.yaml`). Commands
+  documented for the model but not implemented by the emulator stay ACK'd even in strict mode
+  (emitting a `command-unimplemented` event); truly unknown ones emit `command-unknown`. Default
+  is OFF — real firmware (verified Creator 5) silently ACKs unrecognized cmds, and the default
+  behavior must stay parity-accurate. Also supported in the supervisor config as `strictControl`.
 
 ## Project structure
 
@@ -127,6 +137,10 @@ All endpoints are `POST` unless noted. Auth via JSON body `serialNumber` + `chec
 
 **`/control` commands**: `lightControl_cmd`, `printerCtl_cmd`, `jobCtl_cmd`, `circulateCtl_cmd`,
 `streamCtrl_cmd`, `stateCtrl_cmd`, `temperatureCtl_cmd`.
+
+Default behavior for any other cmd is the firmware-parity silent ACK `{code:0,"Success"}`
+(verified against real Creator 5 firmware — do not "fix"). Opt-in `--strict-control` mode (see
+Headless mode) rejects cmds that are not in the model's documented set with `code:-1`.
 
 ### Internal control API (unauthenticated)
 
@@ -275,8 +289,8 @@ station. They differ from the 5M family in ways that match real firmware -- deli
 
 ### Tests
 
-- **8 unit tests** (`scripts/tests/unit-headless.test.ts`)
-- **5 integration tests** (`scripts/tests/integration-multi-instance.test.ts`) -- multi-instance
+- **14 unit tests** (`scripts/tests/unit-headless.test.ts`)
+- **6 integration tests** (`scripts/tests/integration-multi-instance.test.ts`) -- multi-instance
   supervisor, Creator 5 series quirks, legacy A4 discovery, AD5X material slot-ID validation,
   registry/`__shutdown`/`kill:all`/`/thumb`/jump/upload-header coverage
 - **1 QA smoke test** (`scripts/qa-regression-smoke.ts`) -- 50+ assertions covering HTTP/TCP/UDP
@@ -306,7 +320,9 @@ request.**
 - **Missing HTTP control commands**: `reName_cmd`, `delayClose_cmd`, `calibration_cmd`,
   `userProfile_cmd`, `msConfig_cmd`, `ms_cmd`, `moveCtrl_cmd`, `extrudeCtrl_cmd`,
   `homingCtrl_cmd`, `errorCodeCtrl_cmd` are not implemented. The emulator's `/control` handler
-  silently returns success for unknown commands so clients won't crash.
+  silently returns success for unknown commands so clients won't crash. These stay ACK'd even
+  with `--strict-control` (they are documented real-firmware commands, listed in
+  `DOCUMENTED_CONTROL_COMMANDS`); strict mode only rejects cmds real firmware does not know.
 - **TCP legacy file upload (`M28`/`M29`)**: Not needed -- modern printers use HTTP upload.
 - **TCP `M610` (rename), `M106`/`M107` (fan)**: Low priority -- these go through HTTP in
   modern clients.

@@ -450,6 +450,14 @@ async function run(): Promise<void> {
   expectEqual(blankEtaDetail.formattedEta, '', 'Blank formattedEta remains blank in /detail');
   expectEqual(blankEtaDetail.estimatedTime, 4681, 'Blank ETA does not change estimatedTime');
 
+  // --- Unknown /control cmds: firmware-parity silent ACK (strict mode is opt-in) ---
+  const unknownCmd = await postJson('/control', {
+    ...buildAuthBody(),
+    payload: { cmd: 'bogusCmd_test', args: {} },
+  });
+  expectEqual(unknownCmd.code, 0, 'unknown /control cmd is silently ACKed (firmware parity)');
+  expectEqual(unknownCmd.message, 'Success', 'unknown /control cmd ACK message is Success');
+
   for (const status of ['cancelled', 'error'] as const) {
     printerStateStore.applyScenario(createStatusScenario(status));
     expectEqual(

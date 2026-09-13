@@ -64,7 +64,8 @@ npm run headless:instance -- \
   --http-port 28898 \
   --discovery-enabled true \
   --simulation-mode auto \
-  --simulation-speed 100
+  --simulation-speed 100 \
+  --strict-control false
 ```
 
 When startup is complete, the process prints:
@@ -87,6 +88,22 @@ npm run headless:supervisor -- --config scripts/headless/multi-instance.example.
 ```
 
 Supervisor enforces unique instance IDs, serials, and runtime ports (`tcpPort` + `httpPort`), emits `EMULATOR_READY` lines per instance, and exits non-zero if any instance fails startup.
+
+### Strict `/control` mode (optional)
+
+Real firmware silently ACKs unrecognized `/control` commands with `{"code":0,"message":"Success"}` (verified on Creator 5). The emulator reproduces that by default — which means client test-suites can false-pass when they send a typo'd or unsupported `cmd`. For that case, instances can opt into stricter behavior:
+
+```bash
+npm run headless:instance -- \
+  --instance-id strict-a \
+  --model adventurer-5m-pro \
+  --serial E2E-SN-A \
+  --check-code E2E-CODE-A \
+  --strict-control true \
+  ... # a bare --strict-control also works
+```
+
+With `--strict-control` on, a `/control` cmd that is neither implemented by the emulator nor documented for that model (per `DOCUMENTED_CONTROL_COMMANDS` in `shared/types/printer.ts`, transcribed from the firmware-verified API docs) is rejected with `{"code":-1,"message":"Unknown command '<cmd>' rejected by strict control mode"}` instead of the silent ACK. Commands that real firmware documents but the emulator does not implement (e.g. `delayClose_cmd`, `userProfile_cmd`) are still ACK'd — rejecting real commands would false-fail legitimate clients. The flag is also accepted per-instance in the supervisor config JSON (`"strictControl": true`) and is visible in `/__state` under `config.strictControl`.
 
 Run headless tests:
 

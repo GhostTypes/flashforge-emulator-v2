@@ -1857,3 +1857,263 @@ test(
     }
   }
 );
+
+test(
+  'strict-control mode: unknown /control cmds are rejected only when opted in',
+  { timeout: TEST_TIMEOUT_MS, concurrency: false },
+  async () => {
+    const { command, prefixArgs } = getRunnerCommand();
+    const instanceScript = path.resolve(process.cwd(), 'scripts/headless/run-instance.ts');
+
+    interface ControlResponse {
+      code: number;
+      message: string;
+    }
+
+    interface StrictE2eInstance {
+      instanceId: string;
+      child: ChildProcessByStdio<null, Readable, Readable>;
+      httpPort: number;
+      serial: string;
+      checkCode: string;
+      stdoutReader: readline.Interface;
+      stderrLines: string[];
+      stderrReader: readline.Interface;
+      ready: boolean;
+    }
+
+    async function spawnStrictE2eInstance(options: {
+      instanceId: string;
+      model: string;
+      strictControl: boolean;
+    }): Promise<StrictE2eInstance> {
+      const [tcpPort, httpPort] = await Promise.all([getFreePort(), getFreePort()]);
+      const serial = `E2E-SN-${options.instanceId.toUpperCase()}`;
+      const checkCode = `E2E-CODE-${options.instanceId.toUpperCase()}`;
+      const instanceArgs = [
+        '--instance-id',
+        options.instanceId,
+        '--model',
+        options.model,
+        '--serial',
+        serial,
+        '--check-code',
+        checkCode,
+        '--machine-name',
+        `Strict E2E ${options.instanceId}`,
+        '--tcp-port',
+        String(tcpPort),
+        '--http-port',
+        String(httpPort),
+        '--discovery-enabled',
+        'false',
+        '--simulation-mode',
+        'manual',
+        '--simulation-speed',
+        '100',
+        '--strict-control',
+        String(options.strictControl),
+      ];
+
+      const child = spawn(command, [...prefixArgs, instanceScript, ...instanceArgs], {
+        cwd: process.cwd(),
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      const stdoutReader = readline.createInterface({ input: child.stdout });
+      const stderrLines: string[] = [];
+      const stderrReader = readline.createInterface({ input: child.stderr });
+      stderrReader.on('line', (line: string) => {
+        stderrLines.push(line);
+      });
+
+      const instance: StrictE2eInstance = {
+        instanceId: options.instanceId,
+        child,
+        httpPort,
+        serial,
+        checkCode,
+        stdoutReader,
+        stderrLines,
+        stderrReader,
+        ready: false,
+      };
+      stdoutReader.on('line', (line: string) => {
+        if (line.trim() === 'EMULATOR_READY') {
+          instance.ready = true;
+        }
+      });
+
+      const startupDeadline = Date.now() + 20_000;
+      while (!instance.ready && Date.now() < startupDeadline && child.exitCode === null) {
+        await wait(100);
+      }
+      assert.ok(
+        instance.ready,
+        `instance ${options.instanceId} did not reach readiness. stderr:\n${stderrLines.join('\n')}`
+      );
+      await waitForHealthReady(httpPort, 10_000);
+      return instance;
+    }
+
+    async function sendControl(
+      instance: StrictE2eInstance,
+      cmd: string,
+      args: Record<string, unknown>
+    ): Promise<ControlResponse> {
+      const response = await fetch(`http://127.0.0.1:${instance.httpPort}/control`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          serialNumber: instance.serial,
+          checkCode: instance.checkCode,
+          payload: { cmd, args },
+        }),
+      });
+      assert.equal(response.status, 200);
+      return (await response.json()) as ControlResponse;
+    }
+
+    async function fetchDetailRightTargetTemp(instance: StrictE2eInstance): Promise<number> {
+      const response = await fetch(`http://127.0.0.1:${instance.httpPort}/detail`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          serialNumber: instance.serial,
+          checkCode: instance.checkCode,
+        }),
+      });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { code: number; detail: { rightTargetTemp: number } };
+      assert.equal(body.code, 0);
+      return body.detail.rightTargetTemp;
+    }
+
+    async function fetchStateStrictControl(instance: StrictE2eInstance): Promise<boolean> {
+      const response = await fetch(`http://127.0.0.1:${instance.httpPort}/__state`);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { config: { strictControl: boolean } };
+      return body.config.strictControl;
+    }
+
+    function hardKill(instance: StrictE2eInstance): void {
+      if (instance.child.exitCode === null && instance.child.pid) {
+        if (process.platform === 'win32') {
+          spawnSync('taskkill', ['/PID', String(instance.child.pid), '/T', '/F']);
+        } else {
+          instance.child.kill('SIGKILL');
+        }
+      }
+    }
+
+    async function waitForInstanceExit(
+      instance: StrictE2eInstance,
+      timeoutMs = 10_000
+    ): Promise<void> {
+      if (instance.child.exitCode !== null) {
+        return;
+      }
+      await new Promise<void>((resolve) => {
+        const timeoutId = setTimeout(() => {
+          hardKill(instance);
+          resolve();
+        }, timeoutMs);
+        instance.child.once('exit', () => {
+          clearTimeout(timeoutId);
+          resolve();
+        });
+      });
+    }
+
+    const instances: StrictE2eInstance[] = [];
+    try {
+      // One default-mode 5M Pro (parity baseline) and two strict instances (5M Pro + Creator 5).
+      const defaultInstance = await spawnStrictE2eInstance({
+        instanceId: 'strict-off-5mp',
+        model: 'adventurer-5m-pro',
+        strictControl: false,
+      });
+      instances.push(defaultInstance);
+      const strict5mp = await spawnStrictE2eInstance({
+        instanceId: 'strict-on-5mp',
+        model: 'adventurer-5m-pro',
+        strictControl: true,
+      });
+      instances.push(strict5mp);
+      const strictC5 = await spawnStrictE2eInstance({
+        instanceId: 'strict-on-c5',
+        model: 'creator-5',
+        strictControl: true,
+      });
+      instances.push(strictC5);
+
+      // Config flag is observable through /__state for each instance
+      assert.equal(await fetchStateStrictControl(defaultInstance), false);
+      assert.equal(await fetchStateStrictControl(strict5mp), true);
+      assert.equal(await fetchStateStrictControl(strictC5), true);
+
+      // (a) Default mode pins firmware parity: unknown cmds are silently ACK'd
+      // (verified real-firmware behavior, endpoints_creator5_1.9.2.yaml)
+      const defaultUnknown = await sendControl(defaultInstance, 'bogusCmd_test', {});
+      assert.equal(defaultUnknown.code, 0);
+      assert.equal(defaultUnknown.message, 'Success');
+
+      // (b) Strict mode rejects unknown cmds with an error attributable to strict mode
+      const strictUnknown = await sendControl(strict5mp, 'bogusCmd_test', {});
+      assert.equal(strictUnknown.code, -1);
+      assert.match(strictUnknown.message, /strict control mode/);
+      assert.match(strictUnknown.message, /bogusCmd_test/);
+
+      // ...and the same holds on a strict Creator 5 instance
+      const strictC5Unknown = await sendControl(strictC5, 'bogusCmd_test', {});
+      assert.equal(strictC5Unknown.code, -1);
+      assert.match(strictC5Unknown.message, /strict control mode/);
+
+      // (c) Strict mode never affects implemented commands: temperatureCtl_cmd still
+      // succeeds and applies state
+      const tempResponse = await sendControl(strict5mp, 'temperatureCtl_cmd', { rightTemp: 205 });
+      assert.equal(tempResponse.code, 0);
+      assert.equal(await fetchDetailRightTargetTemp(strict5mp), 205);
+
+      // Also assert /detail keeps working on the strict instance (strict must not leak)
+      assert.equal(await fetchDetailRightTargetTemp(strictC5), 0);
+
+      // (d) Documented-but-unimplemented cmds stay ACK'd in strict mode (real firmware
+      // commands): delayClose_cmd on Creator 5, newJob_cmd on 5M Pro
+      const c5DelayClose = await sendControl(strictC5, 'delayClose_cmd', {});
+      assert.equal(c5DelayClose.code, 0);
+      assert.equal(c5DelayClose.message, 'Success');
+
+      const fiveMNewJob = await sendControl(strict5mp, 'newJob_cmd', {});
+      assert.equal(fiveMNewJob.code, 0);
+      assert.equal(fiveMNewJob.message, 'Success');
+
+      // Graceful shutdown deregisters each instance
+      for (const instance of [...instances].reverse()) {
+        const shutdownResponse = await fetch(`http://127.0.0.1:${instance.httpPort}/__shutdown`, {
+          method: 'POST',
+        });
+        assert.equal(shutdownResponse.status, 200);
+        assert.equal(((await shutdownResponse.json()) as { ok: boolean }).ok, true);
+        await waitForInstanceExit(instance);
+        assert.equal(
+          instance.child.exitCode,
+          0,
+          `graceful shutdown must exit 0 for ${instance.instanceId}. stderr:\n${instance.stderrLines.join('\n')}`
+        );
+        assert.ok(
+          !loadInstanceRegistry().has(instance.instanceId),
+          `shutdown must deregister ${instance.instanceId}`
+        );
+      }
+    } finally {
+      for (const instance of [...instances].reverse()) {
+        hardKill(instance);
+        await waitForInstanceExit(instance, 3_000);
+        instance.stdoutReader.close();
+        instance.stderrReader.close();
+      }
+    }
+  }
+);

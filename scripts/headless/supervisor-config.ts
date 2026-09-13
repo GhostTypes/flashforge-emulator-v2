@@ -30,6 +30,7 @@ interface RawInstanceConfig {
   discoveryEnabled?: unknown;
   simulationMode?: unknown;
   simulationSpeed?: unknown;
+  strictControl?: unknown;
 }
 
 export interface SupervisorCliOptions {
@@ -105,6 +106,10 @@ function normalizeInstanceConfig(raw: unknown, index: number): HeadlessInstanceO
     candidate.simulationSpeed === undefined
       ? 100
       : expectSimulationSpeed(candidate.simulationSpeed);
+  const strictControl =
+    candidate.strictControl === undefined
+      ? false
+      : expectBoolean(candidate.strictControl, 'strictControl');
 
   if (tcpPort === httpPort) {
     throw new Error(`instances[${index}] tcpPort and httpPort must be different`);
@@ -121,6 +126,7 @@ function normalizeInstanceConfig(raw: unknown, index: number): HeadlessInstanceO
     discoveryEnabled,
     simulationMode: simulationModeCandidate as SimulationMode,
     simulationSpeed,
+    strictControl,
   };
 }
 

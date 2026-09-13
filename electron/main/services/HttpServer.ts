@@ -22,6 +22,7 @@ import type {
   ScenarioPresetId,
 } from '../../../shared/types/printer';
 import {
+  DOCUMENTED_CONTROL_COMMANDS,
   PRINTER_PROFILES,
   canStartNewPrint,
   isCreator5Series,
@@ -809,6 +810,7 @@ export class HttpServer extends EventEmitter {
         checkCode: config.checkCode,
         simulationMode: config.simulationMode,
         simulationSpeed: config.simulationSpeed,
+        strictControl: config.strictControl,
         tcpPort: config.tcpPort,
         httpPort: config.httpPort,
       },
@@ -1157,11 +1159,33 @@ export class HttpServer extends EventEmitter {
         break;
       }
 
-      default:
+      default: {
+        // Firmware parity: real firmware (verified on Creator 5, endpoints_creator5_1.9.2.yaml)
+        // silently ACKs unrecognized /control cmds with {code:0,"Success"}. The silent ACK
+        // below is deliberate parity -- do not "fix" it. Strict-control mode (opt-in per-instance
+        // testing flag) tightens only this default path so client test-suites can catch payload
+        // bugs that a silent ACK would false-pass.
+        if (DOCUMENTED_CONTROL_COMMANDS[this.#model].includes(cmd)) {
+          // Real firmware command with no emulator case. Keep ACKing it (even in strict mode)
+          // -- rejecting documented commands would false-fail legitimate clients.
+          this.emit('command-unimplemented', { cmd });
+          break;
+        }
         this.emit('command-unknown', { cmd });
+        if (printerStateStore.config.strictControl) {
+          res.json(
+            this.#error(
+              ResponseCode.ParameterError,
+              `Unknown command '${cmd}' rejected by strict control mode`
+            )
+          );
+          return;
+        }
         break;
+      }
     }
 
+    // Silent ACK for cmds with no case: firmware parity (see default above)
     res.json(this.#success());
   });
 
