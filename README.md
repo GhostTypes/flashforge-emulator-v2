@@ -105,6 +105,54 @@ npm run headless:instance -- \
 
 With `--strict-control` on, a `/control` cmd that is neither implemented by the emulator nor documented for that model (per `DOCUMENTED_CONTROL_COMMANDS` in `shared/types/printer.ts`, transcribed from the firmware-verified API docs) is rejected with `{"code":-1,"message":"Unknown command '<cmd>' rejected by strict control mode"}` instead of the silent ACK. Commands that real firmware documents but the emulator does not implement (e.g. `delayClose_cmd`, `userProfile_cmd`) are still ACK'd — rejecting real commands would false-fail legitimate clients. The flag is also accepted per-instance in the supervisor config JSON (`"strictControl": true`) and is visible in `/__state` under `config.strictControl`.
 
+### Spoolman mock sidecar (optional)
+
+FlashForgeWebUI and FlashForgeUI-Electron talk to a real [Spoolman](https://github.com/Donkie/Spoolman)
+server for spool selection and filament-usage deduction. For e2e runs, this repo ships a
+standalone mocked Spoolman sidecar that speaks exactly the API subset those frontends use
+(derived from their `SpoolmanService`). It is one process per test run — it is not part of a
+printer instance, registers nothing in `.emulator/instances.json`, and has no Electron
+dependency, so it runs in plain CI containers.
+
+```bash
+npm run headless:spoolman -- --port 7912                  # default seed (6 spools)
+npm run headless:spoolman -- --seed spools.json           # seed from a JSON file
+npm run headless:spoolman -- --seed '[{"id":1,"filament":{"name":"PLA"}}]'  # inline JSON
+```
+
+On startup it prints a single readiness marker plus a JSON payload (mirroring
+`EMULATOR_READY`):
+
+```text
+SPOOLMAN_READY
+{"port":7912,"spoolCount":6,"seedSource":"default"}
+```
+
+Spoolman-faithful routes (same JSON field names and status codes as the real service —
+spool objects match the frontends' `SpoolResponse` type, with `remaining_weight`,
+`used_weight`, `filament.color_hex`, etc.):
+
+| Route | Description |
+|---|---|
+| `GET /api/v1/spool` | List spools. Supports `filament.name`, `filament.material`, `filament.vendor.name`, `location`, `lot_nr` (case-insensitive substring, comma-separated any-of), `allow_archived` (default `false`), `sort` (`-field` for descending), `limit`, `offset`. |
+| `GET /api/v1/spool/:id` | Fetch one spool. `404` with `{"message":...,"type":"spool"}` when unknown; non-numeric ids are `422`. |
+| `PUT /api/v1/spool/:id/use` | Deduct usage. Body `{"use_weight": <g>}` XOR `{"use_length": <mm>}` (422 otherwise or when ≤ 0); decrements `remaining_weight`, increments `used_weight`, converts between weight and length via the filament's `density`/`diameter`, stamps `first_used`/`last_used`, returns the updated spool. |
+
+Test-control routes (internal, non-Spoolman by design, same `__` conventions as the
+emulator's orchestration API):
+
+| Route | Description |
+|---|---|
+| `GET /__requests` | Ordered ledger of accepted usage PUTs: `{ok:true, requests:[{spoolId, useWeight, useLength, timestamp}]}`. Rejected (404/422) PUTs are not recorded. |
+| `POST /__reset` | Restore spool state to seed values and clear the ledger. |
+| `POST /__shutdown` | Graceful exit (responds, then exits 0; SIGINT/SIGTERM do the same). |
+
+State is in memory only. Seeds accept a lenient subset of spool fields (`id` and
+`filament.name` required; `vendor` may be a plain string); everything else defaults
+Spoolman-shaped (`density` 1.24, `diameter` 1.75, `weight` 1000, lengths derived from
+weights). `remaining_weight` defaults to `weight - used_weight`. Invalid seeds, unknown
+options, and port conflicts fail loudly with a non-zero exit and a clear stderr message.
+
 Run headless tests:
 
 ```bash

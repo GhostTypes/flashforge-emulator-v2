@@ -44,8 +44,8 @@ npm run type-check       # TypeScript strict, 0 errors expected
 npm run lint             # Biome check
 npm run lint:fix         # Biome check --write
 npm run smoke:qa         # QA regression smoke test (50+ assertions)
-npm run test:unit        # Unit tests (6)
-npm run test:integration # Integration tests (2)
+npm run test:unit        # Unit tests (14)
+npm run test:integration # Integration tests (9, incl. Spoolman sidecar)
 npm run build:win / build:mac / build:linux
 ```
 
@@ -84,6 +84,26 @@ npm run headless:instance -- \
   (emitting a `command-unimplemented` event); truly unknown ones emit `command-unknown`. Default
   is OFF — real firmware (verified Creator 5) silently ACKs unrecognized cmds, and the default
   behavior must stay parity-accurate. Also supported in the supervisor config as `strictControl`.
+
+### Spoolman mock sidecar
+
+`npm run headless:spoolman` — a standalone mocked [Spoolman](https://github.com/Donkie/Spoolman)
+server (`scripts/headless/run-spoolman.ts` + `spoolman-store.ts` + `spoolman-config.ts`) for the
+frontends' e2e suites (FlashForgeWebUI / FlashForgeUI-Electron spool selection and usage
+deduction). Plain Node + Express via tsx, zero Electron dependencies, one process per test run —
+NOT part of printer instances and not registered in `.emulator/instances.json`.
+
+- Args: `--port` (default 7912), `--seed <path-or-inline-json>` (lenient spool subset; default
+  seed = 6 spools incl. one archived). Prints `SPOOLMAN_READY` + JSON payload on listen; port
+  conflicts and invalid seeds exit non-zero with clear stderr.
+- Spoolman routes: `GET /api/v1/spool` (filters/sort/pagination), `GET /api/v1/spool/:id`,
+  `PUT /api/v1/spool/:id/use` (`use_weight` XOR `use_length`; converts via density/diameter).
+  Wire shape mirrors the frontends' `SpoolResponse` (`remaining_weight`, `filament.color_hex`,
+  null for unset optionals); 404s use `{"message":...,"type":"spool"}`, bad payloads 422.
+  `SpoolmanStore` is the SSOT for spool state; `serializeSpool` in `spoolman-store.ts` is the
+  single wire serializer.
+- Control routes: `GET /__requests` (ordered ledger of accepted usage PUTs),
+  `POST /__reset` (seed state + ledger), `POST /__shutdown` (graceful exit 0).
 
 ## Project structure
 
@@ -290,9 +310,11 @@ station. They differ from the 5M family in ways that match real firmware -- deli
 ### Tests
 
 - **14 unit tests** (`scripts/tests/unit-headless.test.ts`)
-- **6 integration tests** (`scripts/tests/integration-multi-instance.test.ts`) -- multi-instance
-  supervisor, Creator 5 series quirks, legacy A4 discovery, AD5X material slot-ID validation,
-  registry/`__shutdown`/`kill:all`/`/thumb`/jump/upload-header coverage
+- **9 integration tests** (`scripts/tests/integration-multi-instance.test.ts`,
+  `scripts/tests/integration-spoolman.test.ts`) -- multi-instance supervisor, Creator 5 series
+  quirks, legacy A4 discovery, AD5X material slot-ID validation,
+  registry/`__shutdown`/`kill:all`/`/thumb`/jump/upload-header coverage, Spoolman sidecar
+  surface/ledger/reset/shutdown/seeds/port-conflict coverage
 - **1 QA smoke test** (`scripts/qa-regression-smoke.ts`) -- 50+ assertions covering HTTP/TCP/UDP
 
 ## Conventions
