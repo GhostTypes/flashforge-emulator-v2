@@ -233,7 +233,7 @@ const HEX_COLOR_PATTERN = /^#[0-9A-Fa-f]{6}$/;
  * Validates a `materialMappings` payload the way real material-station firmware does.
  *
  * The important guarantee here is the **slot ID base**: slots are 1-based on the wire
- * (`slotId` 1..slotCnt) while tools are 0-based (`toolId` 0..toolCount-1). A client with
+ * (`slotId` 1..slotCnt) while tools are 0-based (`toolId` 0..3, the gcode color index). A client with
  * an off-by-one bug sends `slotId: 0`, and previously the emulator accepted it silently
  * — so a broken client passed against the emulator and failed against hardware. Both
  * `/uploadGcode` (AD5X, mappings at upload time) and `/printGcode` (Creator 5, mappings
@@ -262,6 +262,9 @@ function validateMaterialMappings(
     return `Too many materialMappings: ${rawMappings.length} (station has ${slotCount} slots)`;
   }
 
+  // A mapping's tool is a gcode color index (T0..T3), not a nozzle: the AD5X has
+  // one nozzle but prints up to four colors. The bound is the larger of the two.
+  const maxToolId = Math.max(profile.toolCount, slotCount) - 1;
   const seenToolIds = new Set<number>();
   const seenSlotIds = new Set<number>();
 
@@ -274,9 +277,9 @@ function validateMaterialMappings(
     if (
       !Number.isInteger(mapping.toolId) ||
       mapping.toolId < 0 ||
-      mapping.toolId > profile.toolCount - 1
+      mapping.toolId > maxToolId
     ) {
-      return `materialMappings[${index}].toolId must be 0-${profile.toolCount - 1}, got ${mapping.toolId}`;
+      return `materialMappings[${index}].toolId must be 0-${maxToolId}, got ${mapping.toolId}`;
     }
 
     if (

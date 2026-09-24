@@ -1442,11 +1442,17 @@ test(
       ]);
       assert.notEqual(slotAbove.code, 0, 'slotId above the station slot count must be rejected');
 
-      // Tools stay 0-based: the AD5X has 2, so toolId 2 is out of range.
-      const toolAbove = await uploadWith(ready.httpPort, ready.serial, 'tool-two.3mf', [
-        mapping(2, 1),
+      // Tools stay 0-based and are gcode color indexes (T0..T3): the AD5X has one
+      // nozzle but prints up to four colors, so toolId 3 is valid and 4 is not.
+      const toolFour = await uploadWith(ready.httpPort, ready.serial, 'tool-four.3mf', [
+        mapping(3, 1),
       ]);
-      assert.notEqual(toolAbove.code, 0, 'toolId beyond the tool count must be rejected');
+      assert.equal(toolFour.code, 0, 'toolId 3 (fourth color) must be accepted');
+
+      const toolAbove = await uploadWith(ready.httpPort, ready.serial, 'tool-five.3mf', [
+        mapping(4, 1),
+      ]);
+      assert.notEqual(toolAbove.code, 0, 'toolId beyond the color count must be rejected');
 
       const duplicateSlot = await uploadWith(ready.httpPort, ready.serial, 'dupe.3mf', [
         mapping(0, 1),
