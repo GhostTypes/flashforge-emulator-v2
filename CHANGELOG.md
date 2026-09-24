@@ -8,6 +8,8 @@ This file starts at the change below. For anything earlier, read the git history
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-24
+
 ### Changed
 
 - **A 3MF upload now reports per-tool filament weights from the file.** Real AD5X firmware reads the slicer's `Metadata/slice_info.config` and reports each tool's material, color, and weight in `/gcodeList` (`gcodeToolDatas`, `totalFilamentWeight`). The emulator reported a weight of 0 for every tool. It now reads the same slice info. The tool index is the 1-based filament id minus 1, so a plate that uses filaments 1 and 3 reports tools 0 and 2. With material mappings, each mapped tool keeps its slot and takes the slicer weight. Without mappings, the tool list comes from the slice info. A gcode upload, or a 3MF without slice info, behaves as before.

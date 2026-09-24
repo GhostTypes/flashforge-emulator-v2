@@ -1,6 +1,6 @@
 {
   "name": "flashforge-emulator-v2",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Fully-featured emulator for FlashForge 3D printers with TCP and HTTP protocol support",
   "main": "dist-electron/main/index.js",
   "author": "GhostTypes",
