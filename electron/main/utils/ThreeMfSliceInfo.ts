@@ -48,7 +48,10 @@ function readZipEntry(buffer: Buffer, entryName: string): Buffer | null {
   const entryCount = buffer.readUInt16LE(eocd + 10);
   let position = buffer.readUInt32LE(eocd + 16);
   for (let index = 0; index < entryCount; index++) {
-    if (position + 46 > buffer.length || buffer.readUInt32LE(position) !== CENTRAL_HEADER_SIGNATURE) {
+    if (
+      position + 46 > buffer.length ||
+      buffer.readUInt32LE(position) !== CENTRAL_HEADER_SIGNATURE
+    ) {
       return null;
     }
     const method = buffer.readUInt16LE(position + 10);
@@ -64,7 +67,10 @@ function readZipEntry(buffer: Buffer, entryName: string): Buffer | null {
         return null;
       }
       const dataStart =
-        localOffset + 30 + buffer.readUInt16LE(localOffset + 26) + buffer.readUInt16LE(localOffset + 28);
+        localOffset +
+        30 +
+        buffer.readUInt16LE(localOffset + 26) +
+        buffer.readUInt16LE(localOffset + 28);
       const data = buffer.subarray(dataStart, dataStart + compressedSize);
       if (method === 0) {
         return data;

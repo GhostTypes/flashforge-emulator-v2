@@ -9,7 +9,6 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { readSliceInfoFilaments, type SliceInfoFilament } from '../utils/ThreeMfSliceInfo';
 import type { Request, RequestHandler, Response } from 'express';
 import express from 'express';
 import type { FileFilterCallback } from 'multer';
@@ -31,6 +30,7 @@ import {
 } from '../../../shared/types/printer';
 import { printerStateStore } from '../state/PrinterStateStore';
 import { protocolLogStore } from '../state/ProtocolLogStore';
+import { type SliceInfoFilament, readSliceInfoFilaments } from '../utils/ThreeMfSliceInfo';
 import { simulationService } from './SimulationService';
 
 /**
@@ -274,11 +274,7 @@ function validateMaterialMappings(
       return `materialMappings[${index}] is malformed`;
     }
 
-    if (
-      !Number.isInteger(mapping.toolId) ||
-      mapping.toolId < 0 ||
-      mapping.toolId > maxToolId
-    ) {
+    if (!Number.isInteger(mapping.toolId) || mapping.toolId < 0 || mapping.toolId > maxToolId) {
       return `materialMappings[${index}].toolId must be 0-${maxToolId}, got ${mapping.toolId}`;
     }
 

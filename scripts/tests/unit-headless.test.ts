@@ -435,7 +435,10 @@ test('readSliceInfoFilaments maps 3MF filament ids to gcode tools with weights',
     '<filament id="1" type="PLA" color="#4DA3FF" used_m="2.33" used_g="6.94" />',
     '</plate></config>',
   ].join(String.fromCharCode(10));
-  const archive = buildZip({ '3D/3dmodel.model': '<model/>', 'Metadata/slice_info.config': sliceInfo });
+  const archive = buildZip({
+    '3D/3dmodel.model': '<model/>',
+    'Metadata/slice_info.config': sliceInfo,
+  });
 
   assert.deepEqual(readSliceInfoFilaments(archive), [
     { toolId: 0, materialName: 'PLA', materialColor: '#4DA3FF', usedG: 6.94 },
