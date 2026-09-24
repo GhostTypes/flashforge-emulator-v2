@@ -275,6 +275,10 @@ Model profiles live in `shared/types/printer.ts` (`PRINTER_PROFILES`).
 Full material station state in `/detail`: `hasMatlStation`, `matlStationInfo` (4 slots with
 filament/color), `indepMatlInfo`. Print/upload endpoints accept material slot mappings.
 
+**3MF uploads report slicer weights.** `/uploadGcode` reads `Metadata/slice_info.config` from an
+uploaded 3MF (`electron/main/utils/ThreeMfSliceInfo.ts`) and fills each tool's `filamentWeight`,
+as AD5X firmware does. The tool index is the filament id minus 1 (filaments 1 and 3 → T0 and T2).
+
 **Slot IDs are 1-based (`slotId` 1-4); tool IDs are 0-based.** `materialMappings` payloads are
 validated against those bases -- on `/uploadGcode` for the AD5X (which maps at upload) and on
 `/printGcode` for the Creator 5 series (which maps at print-start). A `slotId` of 0 is rejected

@@ -9,6 +9,7 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { readSliceInfoFilaments, type SliceInfoFilament } from '../utils/ThreeMfSliceInfo';
 import type { Request, RequestHandler, Response } from 'express';
 import express from 'express';
 import type { FileFilterCallback } from 'multer';
@@ -343,6 +344,40 @@ function buildGcodeToolDatas(
     materialColor: '#4DA3FF',
     filamentWeight: 0,
     slotId: hasMaterialStation ? index + MIN_MATERIAL_SLOT_ID : 0,
+  }));
+}
+
+/**
+ * Fill tool data from the 3MF's slice info, as real AD5X firmware does.
+ *
+ * With material mappings, the mapped tools keep their mapped slot and
+ * material, and take the slicer's per-tool weight. Without mappings, the tool
+ * list comes from the slice info itself (no slot assigned yet).
+ *
+ * @param tools - Tool data built from the upload headers
+ * @param filaments - Slice info of the uploaded 3MF (empty for gcode files)
+ * @param mapped - Whether the upload carried material mappings
+ */
+function applySliceInfo(
+  tools: GcodeToolData[],
+  filaments: readonly SliceInfoFilament[],
+  mapped: boolean
+): GcodeToolData[] {
+  if (filaments.length === 0) {
+    return tools;
+  }
+  if (mapped) {
+    return tools.map((tool) => {
+      const filament = filaments.find((candidate) => candidate.toolId === tool.toolId);
+      return filament ? { ...tool, filamentWeight: filament.usedG } : tool;
+    });
+  }
+  return filaments.map((filament) => ({
+    toolId: filament.toolId,
+    materialName: filament.materialName,
+    materialColor: filament.materialColor,
+    filamentWeight: filament.usedG,
+    slotId: 0,
   }));
 }
 
@@ -1436,7 +1471,11 @@ export class HttpServer extends EventEmitter {
     const is3mf = fileName.toLowerCase().endsWith('.3mf');
 
     const hasMaterialStation = PRINTER_PROFILES[this.#model].hasMaterialStation;
-    const gcodeToolDatas = buildGcodeToolDatas(materialMappings, gcodeToolCnt, hasMaterialStation);
+    const gcodeToolDatas = applySliceInfo(
+      buildGcodeToolDatas(materialMappings, gcodeToolCnt, hasMaterialStation),
+      is3mf ? readSliceInfoFilaments(uploadedFile.buffer) : [],
+      materialMappings.length > 0
+    );
     const resolvedToolCount = gcodeToolDatas.length > 0 ? gcodeToolDatas.length : gcodeToolCnt;
     const resolvedUseMaterialStation = useMatlStation || resolvedToolCount > 0;
 

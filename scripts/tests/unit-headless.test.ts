@@ -4,7 +4,9 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { deflateRawSync } from 'node:zlib';
 import { printerStateStore } from '../../electron/main/state/PrinterStateStore';
+import { readSliceInfoFilaments } from '../../electron/main/utils/ThreeMfSliceInfo';
 import { parseHeadlessInstanceArgs } from '../headless/instance-config';
 import {
   type InstanceRegistryEntry,
@@ -388,4 +390,61 @@ test('instance registry survives corrupt files and prunes stale pids', () => {
   assert.deepEqual(pruned, ['stale']);
   assert.deepEqual([...entries.keys()], ['live']);
   assert.ok(!loadInstanceRegistry(registryPath).has('stale'));
+});
+
+/** Build a minimal ZIP archive (deflated entries) in memory. */
+function buildZip(entries: Record<string, string>): Buffer {
+  const locals: Buffer[] = [];
+  const centrals: Buffer[] = [];
+  let offset = 0;
+  for (const [name, content] of Object.entries(entries)) {
+    const nameBytes = Buffer.from(name, 'utf8');
+    const data = deflateRawSync(Buffer.from(content, 'utf8'));
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt32LE(data.length, 18);
+    local.writeUInt32LE(Buffer.byteLength(content), 22);
+    local.writeUInt16LE(nameBytes.length, 26);
+    locals.push(local, nameBytes, data);
+
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(0x02014b50, 0);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(Buffer.byteLength(content), 24);
+    central.writeUInt16LE(nameBytes.length, 28);
+    central.writeUInt32LE(offset, 42);
+    centrals.push(central, nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const directory = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(Object.keys(entries).length, 8);
+  end.writeUInt16LE(Object.keys(entries).length, 10);
+  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+
+test('readSliceInfoFilaments maps 3MF filament ids to gcode tools with weights', () => {
+  const sliceInfo = [
+    '<config><plate>',
+    '<filament id="3" type="PETG" color="#FF8A3D" used_m="1.47" used_g="4.38" />',
+    '<filament id="1" type="PLA" color="#4DA3FF" used_m="2.33" used_g="6.94" />',
+    '</plate></config>',
+  ].join(String.fromCharCode(10));
+  const archive = buildZip({ '3D/3dmodel.model': '<model/>', 'Metadata/slice_info.config': sliceInfo });
+
+  assert.deepEqual(readSliceInfoFilaments(archive), [
+    { toolId: 0, materialName: 'PLA', materialColor: '#4DA3FF', usedG: 6.94 },
+    { toolId: 2, materialName: 'PETG', materialColor: '#FF8A3D', usedG: 4.38 },
+  ]);
+});
+
+test('readSliceInfoFilaments returns nothing for non-3MF or incomplete input', () => {
+  assert.deepEqual(readSliceInfoFilaments(undefined), []);
+  assert.deepEqual(readSliceInfoFilaments(Buffer.from('G1 X1 E1;'.repeat(10))), []);
+  assert.deepEqual(readSliceInfoFilaments(buildZip({ '3D/3dmodel.model': '<model/>' })), []);
 });
